@@ -2,74 +2,83 @@ package ovrstat
 
 import (
 	"encoding/json"
-	"fmt"
-	"math"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
+    //"fmt"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/pkg/errors"
 )
 
 const (
-	baseURL = "https://playoverwatch.com/en-us/career"
+	baseURL = "https://overwatch.blizzard.com/en-us/career"
 
-	apiURL = "https://playoverwatch.com/en-us/search/account-by-name/"
+	apiURL = "https://overwatch.blizzard.com/en-us/search/account-by-name/"
 
-	// PlatformXBL is platform : XBOX
-	PlatformXBL = "xbl"
-
-	// PlatformPSN is the platform : Playstation Network
-	PlatformPSN = "psn"
-
-	// PlatformPC is the platform : PC
+	// PlatformPC is a platform for PCs (mouseKeyboard in the page)
 	PlatformPC = "pc"
 
-	PlatformNS = "nintendo-switch"
+	// PlatformConsole is a consolidated platform of all consoles
+	PlatformConsole = "console"
 )
 
 var (
 	// ErrPlayerNotFound is thrown when a player doesn't exist
-	ErrPlayerNotFound = errors.New("Player not found")
+	// ErrPlayerNotFound = errors.New("Player not found")
+	ErrPlayerNotFound = errors.New("Player not found! No Players Found!")
 
 	// ErrInvalidPlatform is thrown when the passed params are incorrect
+	// ErrInvalidPlatform = errors.New("Invalid platform")
 	ErrInvalidPlatform = errors.New("Invalid platform")
 )
 
+
+
 // Stats retrieves player stats
 // Universal method if you don't need to differentiate it
-func Stats(platform, tag string) (*PlayerStats, error) {
-	switch platform {
+func Stats(platformKey, tag string) (*PlayerStats, error) {
+	// Do platform key mapping
+	switch platformKey {
 	case PlatformPC:
-		return PCStats(tag) // Perform a stats lookup for PC
-	case PlatformPSN, PlatformXBL, PlatformNS:
-		return ConsoleStats(platform, tag) // Perform a stats lookup for Console
-	default:
-		return nil, ErrInvalidPlatform
+		platformKey = "mouseKeyboard"
 	}
-}
 
-// ConsoleStats retrieves player stats for Console
-func ConsoleStats(platform, tag string) (*PlayerStats, error) {
-	return playerStats(fmt.Sprintf("/%s/%s", platform, tag), platform)
-}
+	// Parse the API response first
+	var ps PlayerStats
 
-// PCStats retrieves player stats for PC
-func PCStats(tag string) (*PlayerStats, error) {
-	return playerStats(fmt.Sprintf("/pc/%s", tag), "pc")
-}
+	players, err := retrievePlayers(tag)
+    
+	if err != nil {
+		return nil, err
+	}
 
-// playerStats retrieves all Overwatch statistics for a given player
-func playerStats(profilePath string, platform string) (*PlayerStats, error) {
+	if len(players) == 0 {
+		return nil, ErrPlayerNotFound
+	}
+
+	if !players[0].IsPublic {
+		ps.Private = true
+		return &ps, nil
+	}
+
 	// Create the profile url for scraping
-	url := baseURL + profilePath
+    var profileUrl string
+    if strings.Contains(tag, "#"){
+        profileUrl = baseURL + "/" + strings.Replace(tag, "#", "-", -1) + "/"
+    }
+    if strings.Contains(tag, "-"){
+        profileUrl = baseURL + "/" + tag + "/"
+    }
 
+    
 	// Perform the stats request and decode the response
-	res, err := http.Get(url)
+	res, err := http.Get(profileUrl)
+    
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to retrieve profile")
 	}
@@ -82,78 +91,50 @@ func playerStats(profilePath string, platform string) (*PlayerStats, error) {
 	}
 
 	// Checks if profile not found, site still returns 200 in this case
-	if pd.Find("h1.u-align-center").First().Text() == "Profile Not Found" {
+	if pd.Find("[slot=heading]").First().Text() == "Page Not Found" {
 		return nil, ErrPlayerNotFound
+	}
+
+	ps.Name = pd.Find(".Profile-player--name").Text()
+
+	platforms := make(map[string]Platform)
+
+	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
+		id, _ := sel.Attr("id")
+
+		id = filterRegexp.FindStringSubmatch(id)[1]
+
+		viewID := "." + id + "-view"
+
+		// Using combined classes (.class.class2) we can filter out our views based on platform
+		rankWrapper := pd.Find(".Profile-playerSummary--rankWrapper" + viewID)
+
+		view := pd.Find(".Profile-view" + viewID)
+
+		if view.Length() == 0 {
+			return
+		}
+
+		platforms[id] = Platform{
+			Name:        sel.Text(),
+			RankWrapper: rankWrapper,
+			ProfileView: view,
+		}
+	})
+
+	platform, exists := platforms[platformKey]
+
+	if !exists {
+		return nil, ErrInvalidPlatform
 	}
 
 	// Scrapes all stats for the passed user and sets struct member data
-	ps := parseGeneralInfo(pd.Find("div.masthead").First())
+	parseGeneralInfo(platform, pd.Find(".Profile-masthead").First(), &ps)
 
-	// Perform api request
-	var platforms []Platform
+	parseDetailedStats(platform, ".quickPlay-view", &ps.QuickPlayStats.StatsCollection)
+	parseDetailedStats(platform, ".competitive-view", &ps.CompetitiveStats.StatsCollection)
 
-	tagPath := profilePath[strings.LastIndex(profilePath, "/")+1:]
-	apiPath := tagPath
-
-	if platform == PlatformNS {
-		apiPath = apiPath[0:strings.Index(apiPath, "-")]
-	} else if platform != PlatformPSN {
-		apiPath = strings.Replace(apiPath, "-", "%23", -1)
-	}
-
-	apires, err := http.Get(apiURL + apiPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to perform platform API request")
-	}
-	defer apires.Body.Close()
-
-	// Decode received JSON
-	if err := json.NewDecoder(apires.Body).Decode(&platforms); err != nil {
-		return nil, errors.Wrap(err, "Failed to decode platform API response")
-	}
-
-	platforms = filterPlatform(tagPath, platform, platforms)
-
-	switch len(platforms) {
-	case 0:
-		// Not found
-		return nil, ErrPlayerNotFound
-	case 1:
-		// Single, exact result
-		p := platforms[0]
-
-		ps.Name = p.Name
-		ps.Prestige = int(math.Floor(float64(p.PlayerLevel) / 100))
-	default:
-		// Matched multiple results (2+), use exact name if possible and the first result
-		var foundMatch bool
-
-		for _, p := range platforms {
-			if p.Name == ps.Name {
-				ps.Prestige = int(math.Floor(float64(p.PlayerLevel) / 100))
-
-				foundMatch = true
-				break
-			}
-		}
-
-		if !foundMatch {
-			p := platforms[0]
-
-			ps.Name = p.Name
-			ps.Prestige = int(math.Floor(float64(p.PlayerLevel) / 100))
-		}
-	}
-
-	if pd.Find("p.masthead-permission-level-text").First().Text() == "Private Profile" {
-		ps.Private = true
-		return &ps, nil
-	}
-
-	parseDetailedStats(pd.Find("div#quickplay").First(), &ps.QuickPlayStats.StatsCollection)
-	parseDetailedStats(pd.Find("div#competitive").First(), &ps.CompetitiveStats.StatsCollection)
-
-	competitiveSeason, _ := pd.Find("div[data-competitive-season]").Attr("data-competitive-season")
+	competitiveSeason, _ := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2")
 
 	if competitiveSeason != "" {
 		competitiveSeason, _ := strconv.Atoi(competitiveSeason)
@@ -161,43 +142,201 @@ func playerStats(profilePath string, platform string) (*PlayerStats, error) {
 		ps.CompetitiveStats.Season = &competitiveSeason
 	}
 
+	addGameStats(&ps, &ps.QuickPlayStats.StatsCollection)
+	addGameStats(&ps, &ps.CompetitiveStats.StatsCollection)
+
 	return &ps, nil
 }
 
-// Filters the platform slice to return only matching platforms
-func filterPlatform(tagPath, platform string, platforms []Platform) []Platform {
-	out := make([]Platform, 0)
 
-	for _, p := range platforms {
-		if p.Platform == platform && (platform != PlatformNS || p.URLName == tagPath) {
-			out = append(out, p)
+
+
+func addGameStats(ps *PlayerStats, statsCollection *StatsCollection) {
+	if heroStats, ok := statsCollection.CareerStats["allHeroes"]; ok {
+		if gamesPlayed, ok := heroStats.Game["gamesPlayed"]; ok {
+			ps.GamesPlayed += gamesPlayed.(int)
+		}
+
+		if gamesWon, ok := heroStats.Game["gamesWon"]; ok {
+			ps.GamesWon += gamesWon.(int)
+		}
+
+		if gamesLost, ok := heroStats.Game["gamesLost"]; ok {
+			ps.GamesLost += gamesLost.(int)
 		}
 	}
-
-	return out
 }
+
+
+
+
+func ProfileStats(platformKey, tag string) (*PlayerStats, error) {
+	// Do platform key mapping
+	switch platformKey {
+	case PlatformPC:
+		platformKey = "mouseKeyboard"
+	}
+
+	// Parse the API response first
+	var ps PlayerStats
+
+	players, err := retrievePlayers(tag)
+    
+	if err != nil {
+		return nil, err
+	}
+
+	if len(players) == 0 {
+		return nil, ErrPlayerNotFound
+	}
+
+	if !players[0].IsPublic {
+		ps.Private = true
+		return &ps, nil
+	}
+
+	// Create the profile url for scraping
+    var profileUrl string
+    if strings.Contains(tag, "#"){
+        profileUrl = baseURL + "/" + strings.Replace(tag, "#", "-", -1) + "/"
+    }
+    if strings.Contains(tag, "-"){
+        profileUrl = baseURL + "/" + tag + "/"
+    }
+
+    
+	// Perform the stats request and decode the response
+	res, err := http.Get(profileUrl)
+    
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to retrieve profile")
+	}
+	defer res.Body.Close()
+
+	// Parses the stats request into a goquery document
+	pd, err := goquery.NewDocumentFromReader(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to create goquery document")
+	}
+
+	// Checks if profile not found, site still returns 200 in this case
+	if pd.Find("[slot=heading]").First().Text() == "Page Not Found" {
+		return nil, ErrPlayerNotFound
+	}
+
+	ps.Name = pd.Find(".Profile-player--name").Text()
+
+	platforms := make(map[string]Platform)
+
+	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
+		id, _ := sel.Attr("id")
+
+		id = filterRegexp.FindStringSubmatch(id)[1]
+
+		viewID := "." + id + "-view"
+
+		// Using combined classes (.class.class2) we can filter out our views based on platform
+		rankWrapper := pd.Find(".Profile-playerSummary--rankWrapper" + viewID)
+
+		view := pd.Find(".Profile-view" + viewID)
+
+		if view.Length() == 0 {
+			return
+		}
+
+		platforms[id] = Platform{
+			Name:        sel.Text(),
+			RankWrapper: rankWrapper,
+			ProfileView: view,
+		}
+	})
+
+	platform, exists := platforms[platformKey]
+
+	if !exists {
+		return nil, ErrInvalidPlatform
+	}
+
+	// Scrapes all stats for the passed user and sets struct member data
+	parseGeneralInfo(platform, pd.Find(".Profile-masthead").First(), &ps)
+
+	//parseDetailedStats(platform, ".quickPlay-view", &ps.QuickPlayStats.StatsCollection)
+	//parseDetailedStats(platform, ".competitive-view", &ps.CompetitiveStats.StatsCollection)
+
+	competitiveSeason, _ := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2")
+
+	if competitiveSeason != "" {
+		competitiveSeason, _ := strconv.Atoi(competitiveSeason)
+
+		ps.CompetitiveStats.Season = &competitiveSeason
+	}
+
+	addGameStats(&ps, &ps.QuickPlayStats.StatsCollection)
+	addGameStats(&ps, &ps.CompetitiveStats.StatsCollection)
+
+	return &ps, nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+func retrievePlayers(tag string) ([]Player, error) {
+    if strings.Contains(tag, "-"){
+        tag = strings.Replace(tag, "-", "#", -1)
+    }
+    if strings.Contains(tag, "#"){
+        tag = tag
+    }
+	// Perform api request
+	var platforms []Player
+
+	apires, err := http.Get(apiURL + url.PathEscape(tag))
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to perform platform API request")
+	}
+
+	defer apires.Body.Close()
+
+	// Decode received JSON
+	if err := json.NewDecoder(apires.Body).Decode(&platforms); err != nil {
+		return nil, errors.Wrap(err, "Failed to decode platform API response")
+	}
+	return platforms, nil
+}
+
+
+
+
+var (
+	endorsementRegexp = regexp.MustCompile("/(\\d+)-([a-z0-9]+)\\.svg")
+	rankRegexp        = regexp.MustCompile("([a-zA-Z0-9]+)Tier-(\\d)-([a-z\\d]+)\\.(svg|png)")
+	filterRegexp      = regexp.MustCompile("^([a-zA-Z]+)Filter$")
+)
+
+
+
 
 // populateGeneralInfo extracts the users general info and returns it in a
 // PlayerStats struct
-func parseGeneralInfo(s *goquery.Selection) PlayerStats {
-	var ps PlayerStats
 
+func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) {
 	// Populates all general player information
-	ps.Icon, _ = s.Find("img.player-portrait").Attr("src")
-	ps.Level, _ = strconv.Atoi(s.Find("div.player-level div.u-vertical-center").First().Text())
-	ps.LevelIcon, _ = s.Find("div.player-level").Attr("style")
-	ps.LevelIcon = strings.Replace(ps.LevelIcon, "background-image:url(", "", -1)
-	ps.LevelIcon = strings.Replace(ps.LevelIcon, ")", "", -1)
-	ps.LevelIcon = strings.TrimSpace(ps.LevelIcon)
-	ps.PrestigeIcon, _ = s.Find("div.player-rank").Attr("style")
-	ps.PrestigeIcon = strings.Replace(ps.PrestigeIcon, "background-image:url(", "", -1)
-	ps.PrestigeIcon = strings.Replace(ps.PrestigeIcon, ")", "", -1)
-	ps.PrestigeIcon = strings.TrimSpace(ps.PrestigeIcon)
-	ps.Endorsement, _ = strconv.Atoi(s.Find("div.EndorsementIcon-tooltip div.u-center").First().Text())
-	ps.EndorsementIcon, _ = s.Find("div.EndorsementIcon").Attr("style")
-	ps.EndorsementIcon = strings.Replace(ps.EndorsementIcon, "background-image:url(", "", -1)
-	ps.EndorsementIcon = strings.Replace(ps.EndorsementIcon, ")", "", -1)
-
+	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
+	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
+	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
+    ps.Title = s.Find(".Profile-player--title").Text()
+    
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])
@@ -207,46 +346,55 @@ func parseGeneralInfo(s *goquery.Selection) PlayerStats {
 		}
 	}
 
-	// Ratings.
-	s.Find("div.masthead-player-progression:not(.masthead-player-progression--mobile) div.competitive-rank div.competitive-rank-role").Each(func(i int, rankSel *goquery.Selection) {
+	// Ratings
+	// Note that .is-active is the default platform
+	platform.RankWrapper.Find("div.Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
 		// Rank selections.
-		sel := rankSel.Find("div.competitive-rank-section")
 
-		role, _ := sel.Find("div.competitive-rank-tier.competitive-rank-tier-tooltip").Attr("data-ow-tooltip-text")
-		roleIcon, _ := sel.Find("img.competitive-rank-role-icon").Attr("src")
-		rankIcon, _ := sel.Find("div.competitive-rank-tier.competitive-rank-tier-tooltip img.competitive-rank-tier-icon").Attr("src")
-		level, _ := strconv.Atoi(sel.Find("div.competitive-rank-level").Text())
-		formatedRole := strings.TrimSuffix(role, " Skill Rating")
+		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
+		// Format is /(offense|support|...)-HEX.svg
+		role := path.Base(roleIcon)
+		role = role[0:strings.Index(role, "-")]
+		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
+
+		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
+		tier, _ := strconv.Atoi(rankInfo[2])
 
 		ps.Ratings = append(ps.Ratings, Rating{
-			Level:    level,
-			Role:     strings.ToLower(formatedRole),
+			Group:    rankInfo[1],
+			Tier:     tier,
+			Role:     role,
 			RoleIcon: roleIcon,
 			RankIcon: rankIcon,
 		})
 	})
-
-	ps.GamesWon, _ = strconv.Atoi(strings.Replace(s.Find("div.masthead p.masthead-detail.h4 span").Text(), " games won", "", -1))
-
-	return ps
 }
 
 // parseDetailedStats populates the passed stats collection with detailed statistics
-func parseDetailedStats(playModeSelector *goquery.Selection, sc *StatsCollection) {
-	sc.TopHeroes = parseHeroStats(playModeSelector.Find("div.progress-category").Parent())
-	sc.CareerStats = parseCareerStats(playModeSelector.Find("div.js-stats").Parent())
+func parseDetailedStats(platform Platform, playMode string, sc *StatsCollection) {
+	sc.TopHeroes = parseHeroStats(platform.ProfileView.Find(".Profile-heroSummary--view" + playMode))
+	sc.CareerStats = parseCareerStats(platform.ProfileView.Find(".stats" + playMode))
 }
 
 // parseHeroStats : Parses stats for each individual hero and returns a map
 func parseHeroStats(heroStatsSelector *goquery.Selection) map[string]*TopHeroStats {
 	bhsMap := make(map[string]*TopHeroStats)
+	categoryMap := make(map[string]string)
 
-	heroStatsSelector.Find("div.progress-category").Each(func(i int, heroGroupSel *goquery.Selection) {
+	heroStatsSelector.Find(".Profile-dropdown option").Each(func(i int, sel *goquery.Selection) {
+		optionName := sel.Text()
+		optionVal, _ := sel.Attr("value")
+
+		categoryMap[optionVal] = cleanJSONKey(optionName)
+	})
+
+	heroStatsSelector.Find("div.Profile-progressBars").Each(func(i int, heroGroupSel *goquery.Selection) {
 		categoryID, _ := heroGroupSel.Attr("data-category-id")
-		categoryID = strings.Replace(categoryID, "0x0860000000000", "", -1)
-		heroGroupSel.Find("div.ProgressBar").Each(func(i2 int, statSel *goquery.Selection) {
-			heroName := cleanJSONKey(statSel.Find("div.ProgressBar-title").Text())
-			statVal := statSel.Find("div.ProgressBar-description").Text()
+		categoryID = categoryMap[categoryID]
+
+		heroGroupSel.Find(".Profile-progressBar").Each(func(i2 int, statSel *goquery.Selection) {
+			heroName := cleanJSONKey(statSel.Find(".Profile-progressBar-title").Text())
+			statVal := statSel.Find(".Profile-progressBar-description").Text()
 
 			// Creates hero map if it doesn't exist
 			if bhsMap[heroName] == nil {
@@ -255,19 +403,19 @@ func parseHeroStats(heroStatsSelector *goquery.Selection) map[string]*TopHeroSta
 
 			// Sets hero stats based on stat category type
 			switch categoryID {
-			case "021":
+			case "timePlayed":
 				bhsMap[heroName].TimePlayed = statVal
-			case "039":
+			case "gamesWon":
 				bhsMap[heroName].GamesWon, _ = strconv.Atoi(statVal)
-			case "3D1":
-				bhsMap[heroName].WinPercentage, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
-			case "02F":
+			case "weaponAccuracy":
 				bhsMap[heroName].WeaponAccuracy, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
-			case "3D2":
+			case "criticalHitAccuracy":
+				bhsMap[heroName].CriticalHitAccuracy, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
+			case "eliminationsPerLife":
 				bhsMap[heroName].EliminationsPerLife, _ = strconv.ParseFloat(statVal, 64)
-			case "346":
+			case "multikillBest":
 				bhsMap[heroName].MultiKillBest, _ = strconv.Atoi(statVal)
-			case "31C":
+			case "objectiveKills":
 				bhsMap[heroName].ObjectiveKills, _ = strconv.ParseFloat(statVal, 64)
 			}
 		})
@@ -281,89 +429,92 @@ func parseCareerStats(careerStatsSelector *goquery.Selection) map[string]*Career
 	heroMap := make(map[string]string)
 
 	// Populates tempHeroMap to match hero ID to name in second scrape
-	careerStatsSelector.Find("select option").Each(func(i int, heroSel *goquery.Selection) {
+	careerStatsSelector.Find(".Profile-dropdown option").Each(func(i int, heroSel *goquery.Selection) {
 		heroVal, _ := heroSel.Attr("value")
 		heroMap[heroVal] = heroSel.Text()
 	})
 
 	// Iterates over every hero div
-	careerStatsSelector.Find("div.row.js-stats").Each(func(i int, heroStatsSel *goquery.Selection) {
-		currentHero, _ := heroStatsSel.Attr("data-category-id")
-		currentHero = cleanJSONKey(heroMap[currentHero])
+	careerStatsSelector.Find(".stats-container").Each(func(i int, heroStatsSel *goquery.Selection) {
+		classAttributes, _ := heroStatsSel.Attr("class")
+
+		var currentHeroOption string
+
+		for _, class := range strings.Fields(classAttributes) {
+			if !strings.HasPrefix(class, "option-") {
+				continue
+			}
+
+			currentHeroOption = class[strings.Index(class, "-")+1:]
+		}
+
+		currentHero, exists := heroMap[currentHeroOption]
+
+		if currentHeroOption == "" || !exists {
+			return
+		}
+
+		currentHero = cleanJSONKey(currentHero)
 
 		// Iterates over every stat box
-		heroStatsSel.Find("div.card-stat-block-container").Each(func(i2 int, statBoxSel *goquery.Selection) {
-			statType := statBoxSel.Find(".stat-title").Text()
+		heroStatsSel.Find("div.category").Each(func(i2 int, statBoxSel *goquery.Selection) {
+			statType := statBoxSel.Find(".header p").Text()
 			statType = cleanJSONKey(statType)
 
 			// Iterates over stat row
-			statBoxSel.Find("table.DataTable tbody tr").Each(func(i3 int, statSel *goquery.Selection) {
+			statBoxSel.Find(".stat-item").Each(func(i3 int, statSel *goquery.Selection) {
+				statKey := transformKey(cleanJSONKey(statSel.Find(".name").Text()))
+				statVal := strings.Replace(statSel.Find(".value").Text(), ",", "", -1) // Removes commas from 1k+ values
+				statVal = strings.TrimSpace(statVal)
 
-				// Iterates over every stat td
-				statKey := ""
-				statVal := ""
-				statSel.Find("td").Each(func(i4 int, statKV *goquery.Selection) {
-					switch i4 {
-					case 0:
-						statKey = transformKey(cleanJSONKey(statKV.Text()))
-					case 1:
-						statVal = strings.Replace(statKV.Text(), ",", "", -1) // Removes commas from 1k+ values
+				// Creates stat map if it doesn't exist
+				if csMap[currentHero] == nil {
+					csMap[currentHero] = new(CareerStats)
+				}
 
-						// Creates stat map if it doesn't exist
-						if csMap[currentHero] == nil {
-							csMap[currentHero] = new(CareerStats)
-						}
-
-						// Switches on type, creating category stat maps if exists (will omitempty on json marshal)
-						switch statType {
-						case "assists":
-							if csMap[currentHero].Assists == nil {
-								csMap[currentHero].Assists = make(map[string]interface{})
-							}
-							csMap[currentHero].Assists[statKey] = parseType(statVal)
-						case "average":
-							if csMap[currentHero].Average == nil {
-								csMap[currentHero].Average = make(map[string]interface{})
-							}
-							csMap[currentHero].Average[statKey] = parseType(statVal)
-						case "best":
-							if csMap[currentHero].Best == nil {
-								csMap[currentHero].Best = make(map[string]interface{})
-							}
-							csMap[currentHero].Best[statKey] = parseType(statVal)
-						case "combat":
-							if csMap[currentHero].Combat == nil {
-								csMap[currentHero].Combat = make(map[string]interface{})
-							}
-							csMap[currentHero].Combat[statKey] = parseType(statVal)
-						case "deaths":
-							if csMap[currentHero].Deaths == nil {
-								csMap[currentHero].Deaths = make(map[string]interface{})
-							}
-							csMap[currentHero].Deaths[statKey] = parseType(statVal)
-						case "heroSpecific":
-							if csMap[currentHero].HeroSpecific == nil {
-								csMap[currentHero].HeroSpecific = make(map[string]interface{})
-							}
-							csMap[currentHero].HeroSpecific[statKey] = parseType(statVal)
-						case "game":
-							if csMap[currentHero].Game == nil {
-								csMap[currentHero].Game = make(map[string]interface{})
-							}
-							csMap[currentHero].Game[statKey] = parseType(statVal)
-						case "matchAwards":
-							if csMap[currentHero].MatchAwards == nil {
-								csMap[currentHero].MatchAwards = make(map[string]interface{})
-							}
-							csMap[currentHero].MatchAwards[statKey] = parseType(statVal)
-						case "miscellaneous":
-							if csMap[currentHero].Miscellaneous == nil {
-								csMap[currentHero].Miscellaneous = make(map[string]interface{})
-							}
-							csMap[currentHero].Miscellaneous[statKey] = parseType(statVal)
-						}
+				// Switches on type, creating category stat maps if exists (will omitempty on json marshal)
+				switch statType {
+				case "assists":
+					if csMap[currentHero].Assists == nil {
+						csMap[currentHero].Assists = make(map[string]interface{})
 					}
-				})
+					csMap[currentHero].Assists[statKey] = parseType(statVal)
+				case "average":
+					if csMap[currentHero].Average == nil {
+						csMap[currentHero].Average = make(map[string]interface{})
+					}
+					csMap[currentHero].Average[statKey] = parseType(statVal)
+				case "best":
+					if csMap[currentHero].Best == nil {
+						csMap[currentHero].Best = make(map[string]interface{})
+					}
+					csMap[currentHero].Best[statKey] = parseType(statVal)
+				case "combat":
+					if csMap[currentHero].Combat == nil {
+						csMap[currentHero].Combat = make(map[string]interface{})
+					}
+					csMap[currentHero].Combat[statKey] = parseType(statVal)
+				case "deaths":
+					if csMap[currentHero].Deaths == nil {
+						csMap[currentHero].Deaths = make(map[string]interface{})
+					}
+					csMap[currentHero].Deaths[statKey] = parseType(statVal)
+				case "heroSpecific":
+					if csMap[currentHero].HeroSpecific == nil {
+						csMap[currentHero].HeroSpecific = make(map[string]interface{})
+					}
+					csMap[currentHero].HeroSpecific[statKey] = parseType(statVal)
+				case "game":
+					if csMap[currentHero].Game == nil {
+						csMap[currentHero].Game = make(map[string]interface{})
+					}
+					csMap[currentHero].Game[statKey] = parseType(statVal)
+				case "matchAwards":
+					if csMap[currentHero].MatchAwards == nil {
+						csMap[currentHero].MatchAwards = make(map[string]interface{})
+					}
+					csMap[currentHero].MatchAwards[statKey] = parseType(statVal)
+				}
 			})
 		})
 	})
@@ -406,3 +557,4 @@ func cleanJSONKey(str string) string {
 	}
 	return ""
 }
+

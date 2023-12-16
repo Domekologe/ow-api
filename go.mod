@@ -1,4 +1,4 @@
-module github.com/s32x/ovrstat
+module github.com/Domekologe/ow-api
 
 go 1.19
 

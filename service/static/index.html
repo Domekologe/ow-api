@@ -19,8 +19,8 @@
                 <a href="/"><img class="ui header-logo" src="assets/logo.png"></a>
             </div>
             <div class="right aligned column">
-                <a class="github-button" href="https://github.com/s32x/ovrstat" data-size="large" data-show-count="true"
-                    aria-label="Star starboy/ovrstat on GitHub">Star</a>
+                <a class="github-button" href="https://github.com/ow-api/ovrstat" data-size="large" data-show-count="true"
+                    aria-label="Star ow-api/ovrstat on GitHub">Star</a>
             </div>
         </div>
     </div>
@@ -51,6 +51,18 @@
                                 <div class="item" data-value="nintendo-switch">Nintendo Switch</div>
                             </div>
                         </div>
+                        <div class="ui compact selection dropdown" tabindex="0">
+                            <select id="lookup">
+                                <option value="profile">Profile only</option>
+                                <option value="complete">Complete</option>
+                            </select>
+                            <i class="dropdown icon"></i>
+                            <div class="text">Profile only</div>
+                            <div class="menu" tabindex="-1">
+                                <div class="item active selected" data-value="profile">Profile only</div>
+                                <div class="item" data-value="complete">Complete</div>
+                            </div>
+                        </div>
                         <button id="stats-button" class="ui basic button">Try it out!</button>
                     </div>
                 </form>
@@ -64,9 +76,13 @@
             Overstat is an unofficial Overwatch Stats API written in Go. Accessing its main API endpoint is extremely
             simple. Perform a <code>GET</code> request on the main lookup endpoint defined below.
         </p>
-        <h3>For Stats</h3>
+        <h3>For Profile only Stats</h3>
         <div class="ui yellow segment">
-            <code>https://ovrstat.com/{platform}/{username}</code>
+            <code>https://ovrstat.com/{platform}/{username}/profile</code>
+        </div>
+        <h3>For Complete Stats</h3>
+        <div class="ui yellow segment">
+            <code>https://ovrstat.com/{platform}/{username}/complete</code>
         </div>
     </div>
     <div class="ui container padded-bottom">
@@ -75,8 +91,8 @@
                 <h2>I <i class="red heart icon"></i> Overwatch</h2>
             </div>
             <div class="seven wide right aligned column">
-                <a class="tiny ui yellow button" href="https://github.com/s32x">
-                    <i class="terminal icon"></i> My Github
+                <a class="tiny ui yellow button" href="https://github.com/ow-api">
+                    <i class="terminal icon"></i> Github
                 </a>
             </div>
         </div>
@@ -85,7 +101,7 @@
         This web site and all documentation is licensed under <a href="https://creativecommons.org/licenses/by/3.0/">Creative
             Commons 3.0</a>.
         <br />
-        <i class="copyright icon"></i>Copyright 2021, <a href="https://github.com/s32x">s32x</a>. All Rights
+        <i class="copyright icon"></i>Copyright 2021, <a href="https://github.com/s32x">s32x</a> and <a href="https://ow-api.com">Ow-API</a>. All Rights
         Reserved
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>

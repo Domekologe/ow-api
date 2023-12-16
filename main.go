@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/s32x/ovrstat/service"
+	"github.com/Domekologe/ow-api/service"
 )
 
 func main() {

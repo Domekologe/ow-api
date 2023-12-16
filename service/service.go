@@ -40,7 +40,8 @@ func Echo() *echo.Echo {
 		middleware.Rewrite(map[string]string{"/*": "/static/$1"}))
 
 	// Handle stats API requests
-	e.GET("/stats/:platform/:tag", stats)
+	e.GET("/stats/:platform/:tag/profile", statsProfile)
+    e.GET("/stats/:platform/:tag/complete", statsComplete)
 	e.GET("/healthcheck", func(c echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	})

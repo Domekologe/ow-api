@@ -171,7 +171,7 @@ func addGameStats(ps *PlayerStats, statsCollection *StatsCollection) {
 // Only Gets Profile Stats
 // This part is and will be mainly used in OWidget 2 Application
 
-func ProfileStats(platformKey, tag string) (*PlayerStats, error) {
+func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	// Do platform key mapping
 	switch platformKey {
 	case PlatformPC:
@@ -179,7 +179,7 @@ func ProfileStats(platformKey, tag string) (*PlayerStats, error) {
 	}
 
 	// Parse the API response first
-	var ps PlayerStats
+	var ps PlayerStatsProfile
 
 	players, err := retrievePlayers(tag)
     
@@ -260,21 +260,7 @@ func ProfileStats(platformKey, tag string) (*PlayerStats, error) {
 	}
 
 	// Scrapes all stats for the passed user and sets struct member data
-	parseGeneralInfo(platform, pd.Find(".Profile-masthead").First(), &ps)
-
-	//parseDetailedStats(platform, ".quickPlay-view", &ps.QuickPlayStats.StatsCollection)
-	//parseDetailedStats(platform, ".competitive-view", &ps.CompetitiveStats.StatsCollection)
-
-	competitiveSeason, _ := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2")
-
-	if competitiveSeason != "" {
-		competitiveSeason, _ := strconv.Atoi(competitiveSeason)
-
-		ps.CompetitiveStats.Season = &competitiveSeason
-	}
-
-	addGameStats(&ps, &ps.QuickPlayStats.StatsCollection)
-	addGameStats(&ps, &ps.CompetitiveStats.StatsCollection)
+	parseGeneralInfoProfile(platform, pd.Find(".Profile-masthead").First(), &ps)
 
 	return &ps, nil
 }
@@ -333,6 +319,47 @@ var (
 // PlayerStats struct
 
 func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) {
+	// Populates all general player information
+	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
+	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
+	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
+    ps.Title = s.Find(".Profile-player--title").Text()
+    
+	// Parse Endorsement Icon path (/svg?path=)
+	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
+		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])
+
+		if err == nil && q.Get("path") != "" {
+			ps.EndorsementIcon = q.Get("path")
+		}
+	}
+
+	// Ratings
+	// Note that .is-active is the default platform
+	platform.RankWrapper.Find("div.Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
+		// Rank selections.
+
+		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
+		// Format is /(offense|support|...)-HEX.svg
+		role := path.Base(roleIcon)
+		role = role[0:strings.Index(role, "-")]
+		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
+
+		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
+		tier, _ := strconv.Atoi(rankInfo[2])
+
+		ps.Ratings = append(ps.Ratings, Rating{
+			Group:    rankInfo[1],
+			Tier:     tier,
+			Role:     role,
+			RoleIcon: roleIcon,
+			RankIcon: rankIcon,
+		})
+	})
+}
+
+
+func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *PlayerStatsProfile) {
 	// Populates all general player information
 	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")

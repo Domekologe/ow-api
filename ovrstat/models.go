@@ -18,6 +18,16 @@ type PlayerStats struct {
 	Private          bool                       `json:"private"`
 }
 
+type PlayerStatsProfile struct {
+	Icon             string                     `json:"icon"`
+	Name             string                     `json:"name"`
+	Endorsement      int                        `json:"endorsement"`
+	EndorsementIcon  string                     `json:"endorsementIcon"`
+    Title            string                     `json:"title"`
+	Ratings          []Rating                   `json:"ratings"`
+	Private          bool                       `json:"private"`
+}
+
 type Rating struct {
 	Group    string `json:"group"`
 	Tier     int    `json:"tier"`

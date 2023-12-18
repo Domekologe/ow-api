@@ -6,6 +6,7 @@
 </p>
 
 After ovrstat is obsolete/archived and OW-API didn't get specific values I made an functional version here for my own.
+Please use OW-API as an "official" Continuation. 
 
 `ovrstat` is a simple web scraper for the Overwatch stats site that parses and serves the data retrieved as JSON. Included is the go package used to scrape the info for usage in any go binary. This is a single endpoint web-scraping API that takes the full payload of information that we retrieve from Blizzard and passes it through to you in a single response. Things like caching and splitting data across multiple responses could likely improve performance, but in pursuit of keeping things simple, ovrstat does not implement them.
 

@@ -5,7 +5,7 @@
 <a href="https://godoc.org/github.com/s32x/ovrstat/ovrstat"><img src="https://godoc.org/github.com/s32x/ovrstat/ovrstat?status.svg" alt="GoDoc"></a>
 </p>
 
-This is a continuation of the ovrstat project from s32x, which has been archived/unsupported. It is used and maintained by Ow-API.com and community members.
+After ovrstat is obsolete/archived and OW-API didn't get specific values I made an functional version here for my own.
 
 `ovrstat` is a simple web scraper for the Overwatch stats site that parses and serves the data retrieved as JSON. Included is the go package used to scrape the info for usage in any go binary. This is a single endpoint web-scraping API that takes the full payload of information that we retrieve from Blizzard and passes it through to you in a single response. Things like caching and splitting data across multiple responses could likely improve performance, but in pursuit of keeping things simple, ovrstat does not implement them.
 
@@ -13,7 +13,7 @@ This is a continuation of the ovrstat project from s32x, which has been archived
 ### Installing Locally with Go
 To start using ovrstat on your local system, install Go and run `go get`:
 ```
-$ go get github.com/ow-api/ovrstat
+$ go get github.com/Domekologe/ow-api
 ```
 This will install the ovrstat service on your machine. Running the following will then launch the service.
 ```
@@ -36,7 +36,7 @@ package main
 import (
 	"log"
 
-	"github.com/ow-api/ovrstat/ovrstat"
+	"github.com/Domekologe/ow-api/ovrstat"
 )
 
 func main() {
@@ -51,7 +51,7 @@ ovrstat isn’t endorsed by Blizzard and doesn’t reflect the views or opinions
 The BSD 3-clause License
 ========================
 
-Copyright (c) 2022, s32x, Ow-API. All rights reserved.
+Copyright (c) 2023, s32x, Domekologe. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:

@@ -18,6 +18,7 @@ import (
 const (
 	baseURL = "https://overwatch.blizzard.com/en-us/career"
 
+	// API URL Use '#' as A Delimiter between Number and Name and not '-'
 	apiURL = "https://overwatch.blizzard.com/en-us/search/account-by-name/"
 
 	// PlatformPC is a platform for PCs (mouseKeyboard in the page)
@@ -29,11 +30,9 @@ const (
 
 var (
 	// ErrPlayerNotFound is thrown when a player doesn't exist
-	// ErrPlayerNotFound = errors.New("Player not found")
 	ErrPlayerNotFound = errors.New("Player not found! No Players Found!")
 
 	// ErrInvalidPlatform is thrown when the passed params are incorrect
-	// ErrInvalidPlatform = errors.New("Invalid platform")
 	ErrInvalidPlatform = errors.New("Invalid platform")
 )
 
@@ -67,6 +66,7 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	}
 
 	// Create the profile url for scraping
+	// Change Minus in Name with '#' for correct searches
     var profileUrl string
     if strings.Contains(tag, "#"){
         profileUrl = baseURL + "/" + strings.Replace(tag, "#", "-", -1) + "/"
@@ -168,7 +168,8 @@ func addGameStats(ps *PlayerStats, statsCollection *StatsCollection) {
 }
 
 
-
+// Only Gets Profile Stats
+// This part is and will be mainly used in OWidget 2 Application
 
 func ProfileStats(platformKey, tag string) (*PlayerStats, error) {
 	// Do platform key mapping
@@ -197,6 +198,7 @@ func ProfileStats(platformKey, tag string) (*PlayerStats, error) {
 
 	// Create the profile url for scraping
     var profileUrl string
+	// Change Minus in Name with '#' for correct searches
     if strings.Contains(tag, "#"){
         profileUrl = baseURL + "/" + strings.Replace(tag, "#", "-", -1) + "/"
     }

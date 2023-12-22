@@ -51,9 +51,17 @@ func Echo() *echo.Echo {
     // Serve static web content from /docs
     e.GET("/docs/*", echo.WrapHandler(http.FileServer(http.FS(docsFS))), 
         middleware.Rewrite(map[string]string{
-            "/docs/*": "/docs/$1",
+            "/docs/(.*)": "/docs/$1/",
         }))
 
+
+    // Serve static web content from /docs
+    e.GET("/docs", echo.WrapHandler(http.FileServer(http.FS(docsFS))),
+        middleware.Rewrite(map[string]string{
+            "/docs/": "",
+        }),
+        middleware.Logger(),
+    )
     // Handle stats API requests
     e.GET("/stats/:platform/:tag/profile", statsProfile)
     e.GET("/stats/:platform/:tag/complete", statsComplete)

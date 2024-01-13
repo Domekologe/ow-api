@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-    //"fmt"
-
 	"github.com/PuerkitoBio/goquery"
 	"github.com/pkg/errors"
 )
@@ -45,24 +43,35 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	switch platformKey {
 	case PlatformPC:
 		platformKey = "mouseKeyboard"
+	case PlatformConsole:
+		platformKey = "controller"
 	}
 
 	// Parse the API response first
 	var ps PlayerStats
 
 	players, err := retrievePlayers(tag)
-    
+
 	if err != nil {
 		return nil, err
 	}
 
-	if len(players) == 0 {
-		return nil, ErrPlayerNotFound
+	var playerFound bool
+	var unformatedTag = strings.Replace(tag, "-", "#", -1)
+	for _, player := range players {
+		if player.BattleTag == unformatedTag {
+			playerFound = true
+			if player.IsPublic {
+				break
+			} else {
+				ps.Private = true
+				return &ps, nil
+			}
+		}
 	}
 
-	if !players[0].IsPublic {
-		ps.Private = true
-		return &ps, nil
+	if !playerFound {
+		return nil, ErrPlayerNotFound
 	}
 
 	// Create the profile url for scraping
@@ -75,10 +84,10 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
         profileUrl = baseURL + "/" + tag + "/"
     }
 
-    
+
 	// Perform the stats request and decode the response
 	res, err := http.Get(profileUrl)
-    
+
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to retrieve profile")
 	}
@@ -182,18 +191,27 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	var ps PlayerStatsProfile
 
 	players, err := retrievePlayers(tag)
-    
+
 	if err != nil {
 		return nil, err
 	}
 
-	if len(players) == 0 {
-		return nil, ErrPlayerNotFound
+	var playerFound bool
+	var unformatedTag = strings.Replace(tag, "-", "#", -1)
+	for _, player := range players {
+		if player.BattleTag == unformatedTag {
+			playerFound = true
+			if player.IsPublic {
+				break
+			} else {
+				ps.Private = true
+				return &ps, nil
+			}
+		}
 	}
 
-	if !players[0].IsPublic {
-		ps.Private = true
-		return &ps, nil
+	if !playerFound {
+		return nil, ErrPlayerNotFound
 	}
 
 	// Create the profile url for scraping
@@ -206,10 +224,10 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
         profileUrl = baseURL + "/" + tag + "/"
     }
 
-    
+
 	// Perform the stats request and decode the response
 	res, err := http.Get(profileUrl)
-    
+
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to retrieve profile")
 	}
@@ -283,13 +301,10 @@ func retrievePlayers(tag string) ([]Player, error) {
     if strings.Contains(tag, "-"){
         tag = strings.Replace(tag, "-", "#", -1)
     }
-    if strings.Contains(tag, "#"){
-        tag = tag
-    }
 	// Perform api request
 	var platforms []Player
 
-	apires, err := http.Get(apiURL + url.PathEscape(tag))
+	apires, err := http.Get(apiURL + tag)
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to perform platform API request")
 	}
@@ -324,7 +339,7 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
-    
+
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])
@@ -336,11 +351,33 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 
 	// Ratings
 	// Note that .is-active is the default platform
-	platform.RankWrapper.Find("div.Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
+	platform.RankWrapper.Find(".Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
 		// Rank selections.
 
-		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
-		// Format is /(offense|support|...)-HEX.svg
+		var roleIconElement = sel.Find(".Profile-playerSummary--role").Nodes[0]
+
+		var roleIcon string
+		if roleIconElement.Data == "div" {
+			roleIconElement = sel.Find(".Profile-playerSummary--role img").Nodes[0]
+
+			for _, attr := range roleIconElement.Attr {
+				if attr.Key == "src"{
+					roleIcon = attr.Val
+					break
+				}
+			}
+		} else if roleIconElement.Namespace == "svg" {
+			roleIconElement = sel.Find(".Profile-playerSummary--role use").Nodes[0]
+			for _, attr := range roleIconElement.Attr {
+				if attr.Key == "href"{
+					roleIcon = attr.Val
+					break
+				}
+			}
+		}
+
+
+		// Format is /(offense|support|tank)-HEX.svg
 		role := path.Base(roleIcon)
 		role = role[0:strings.Index(role, "-")]
 		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
@@ -365,7 +402,7 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
-    
+
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])

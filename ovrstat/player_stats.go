@@ -283,13 +283,10 @@ func retrievePlayers(tag string) ([]Player, error) {
     if strings.Contains(tag, "-"){
         tag = strings.Replace(tag, "-", "#", -1)
     }
-    if strings.Contains(tag, "#"){
-        tag = tag
-    }
 	// Perform api request
 	var platforms []Player
 
-	apires, err := http.Get(apiURL + url.PathEscape(tag))
+	apires, err := http.Get(apiURL + tag)
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to perform platform API request")
 	}

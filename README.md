@@ -25,9 +25,7 @@ $ ovrstat
 Below is an example of using the REST endpoint (note: CASE matters for the username/tag):
 ```
 http://localhost:8080/stats/pc/Viz-1213
-http://localhost:8080/stats/xbl/Lt%20Evolution
-http://localhost:8080/stats/psn/TayuyaBreast
-http://localhost:8080/stats/nintendo-switch/Mario-70af1a16ae4913bde139d46edb43df55
+http://localhost:8080/stats/console/Viz-1213
 ```
 ### Using Go to retrieve Stats
 

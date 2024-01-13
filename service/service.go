@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
     "github.com/labstack/gommon/log"
-    
+
     "strings"
 )
 
@@ -40,16 +40,16 @@ func Echo() *echo.Echo {
     e.Pre(middleware.Secure())
     e.Use(middleware.Gzip())
     e.Use(middleware.CORS())
-    
+
 
     // Serve static content from /static and /docs
     // Serve static web content from /static
-    e.GET("/*", echo.WrapHandler(http.FileServer(http.FS(staticFS))), 
+    e.GET("/*", echo.WrapHandler(http.FileServer(http.FS(staticFS))),
         middleware.Rewrite(map[string]string{
             "/*": "/static/$1",
         }))
     // Serve static web content from /docs
-    e.GET("/docs/*", echo.WrapHandler(http.FileServer(http.FS(docsFS))), 
+    e.GET("/docs/*", echo.WrapHandler(http.FileServer(http.FS(docsFS))),
         middleware.Rewrite(map[string]string{
             "/docs/(.*)": "/docs/$1/",
         }))

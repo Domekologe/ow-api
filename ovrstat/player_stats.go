@@ -51,7 +51,7 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	var ps PlayerStats
 
 	players, err := retrievePlayers(tag)
-    
+
 	if err != nil {
 		return nil, err
 	}
@@ -75,10 +75,10 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
         profileUrl = baseURL + "/" + tag + "/"
     }
 
-    
+
 	// Perform the stats request and decode the response
 	res, err := http.Get(profileUrl)
-    
+
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to retrieve profile")
 	}
@@ -182,7 +182,7 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	var ps PlayerStatsProfile
 
 	players, err := retrievePlayers(tag)
-    
+
 	if err != nil {
 		return nil, err
 	}
@@ -206,10 +206,10 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
         profileUrl = baseURL + "/" + tag + "/"
     }
 
-    
+
 	// Perform the stats request and decode the response
 	res, err := http.Get(profileUrl)
-    
+
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to retrieve profile")
 	}
@@ -324,7 +324,7 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
-    
+
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])
@@ -365,7 +365,7 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
-    
+
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])

@@ -45,6 +45,8 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	switch platformKey {
 	case PlatformPC:
 		platformKey = "mouseKeyboard"
+	case PlatformConsole:
+		platformKey = "controller"
 	}
 
 	// Parse the API response first

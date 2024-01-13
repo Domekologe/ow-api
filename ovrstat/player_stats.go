@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-    //"fmt"
-
 	"github.com/PuerkitoBio/goquery"
 	"github.com/pkg/errors"
 )
@@ -353,11 +351,33 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 
 	// Ratings
 	// Note that .is-active is the default platform
-	platform.RankWrapper.Find("div.Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
+	platform.RankWrapper.Find(".Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
 		// Rank selections.
 
-		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
-		// Format is /(offense|support|...)-HEX.svg
+		var roleIconElement = sel.Find(".Profile-playerSummary--role").Nodes[0]
+
+		var roleIcon string
+		if roleIconElement.Data == "div" {
+			roleIconElement = sel.Find(".Profile-playerSummary--role img").Nodes[0]
+
+			for _, attr := range roleIconElement.Attr {
+				if attr.Key == "src"{
+					roleIcon = attr.Val
+					break
+				}
+			}
+		} else if roleIconElement.Namespace == "svg" {
+			roleIconElement = sel.Find(".Profile-playerSummary--role use").Nodes[0]
+			for _, attr := range roleIconElement.Attr {
+				if attr.Key == "href"{
+					roleIcon = attr.Val
+					break
+				}
+			}
+		}
+
+
+		// Format is /(offense|support|tank)-HEX.svg
 		role := path.Base(roleIcon)
 		role = role[0:strings.Index(role, "-")]
 		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")

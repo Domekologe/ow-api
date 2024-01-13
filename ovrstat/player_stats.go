@@ -56,13 +56,22 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 		return nil, err
 	}
 
-	if len(players) == 0 {
-		return nil, ErrPlayerNotFound
+	var playerFound bool
+	var unformatedTag = strings.Replace(tag, "-", "#", -1)
+	for _, player := range players {
+		if player.BattleTag == unformatedTag {
+			playerFound = true
+			if player.IsPublic {
+				break
+			} else {
+				ps.Private = true
+				return &ps, nil
+			}
+		}
 	}
 
-	if !players[0].IsPublic {
-		ps.Private = true
-		return &ps, nil
+	if !playerFound {
+		return nil, ErrPlayerNotFound
 	}
 
 	// Create the profile url for scraping
@@ -187,13 +196,22 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 		return nil, err
 	}
 
-	if len(players) == 0 {
-		return nil, ErrPlayerNotFound
+	var playerFound bool
+	var unformatedTag = strings.Replace(tag, "-", "#", -1)
+	for _, player := range players {
+		if player.BattleTag == unformatedTag {
+			playerFound = true
+			if player.IsPublic {
+				break
+			} else {
+				ps.Private = true
+				return &ps, nil
+			}
+		}
 	}
 
-	if !players[0].IsPublic {
-		ps.Private = true
-		return &ps, nil
+	if !playerFound {
+		return nil, ErrPlayerNotFound
 	}
 
 	// Create the profile url for scraping

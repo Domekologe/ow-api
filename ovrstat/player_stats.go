@@ -323,7 +323,8 @@ func retrievePlayers(tag string) ([]Player, error) {
 
 var (
 	endorsementRegexp = regexp.MustCompile("/(\\d+)-([a-z0-9]+)\\.svg")
-	rankRegexp        = regexp.MustCompile("([a-zA-Z0-9]+)Tier-(\\d)-([a-z\\d]+)\\.(svg|png)")
+	rankRegexp        = regexp.MustCompile(`https://\S+Rank_([a-zA-Z]+)Tier-(\d+[a-f0-9]+)\.png`)
+	tierRegexp        = regexp.MustCompile(`https://\S+TierDivision_(\d+)-[a-f0-9]+\.png`)
 	filterRegexp      = regexp.MustCompile("^([a-zA-Z]+)Filter$")
 )
 
@@ -381,9 +382,10 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 		role := path.Base(roleIcon)
 		role = role[0:strings.Index(role, "-")]
 		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
-
+        tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
 		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
-		tier, _ := strconv.Atoi(rankInfo[2])
+		tierInfo := tierRegexp.FindStringSubmatch(tierIcon)
+		tier, _ := strconv.Atoi(tierInfo[1])
 
 		ps.Ratings = append(ps.Ratings, Rating{
 			Group:    rankInfo[1],
@@ -391,6 +393,7 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 			Role:     role,
 			RoleIcon: roleIcon,
 			RankIcon: rankIcon,
+			TierIcon: tierIcon,
 		})
 	})
 }
@@ -422,9 +425,10 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 		role := path.Base(roleIcon)
 		role = role[0:strings.Index(role, "-")]
 		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
-
+        tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
 		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
-		tier, _ := strconv.Atoi(rankInfo[2])
+        tierInfo := tierRegexp.FindStringSubmatch(tierIcon)
+        tier, _ := strconv.Atoi(tierInfo[1])
 
 		ps.Ratings = append(ps.Ratings, Rating{
 			Group:    rankInfo[1],
@@ -432,6 +436,7 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 			Role:     role,
 			RoleIcon: roleIcon,
 			RankIcon: rankIcon,
+            TierIcon: tierIcon,
 		})
 	})
 }

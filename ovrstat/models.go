@@ -34,6 +34,7 @@ type Rating struct {
 	Role     string `json:"role"`
 	RoleIcon string `json:"roleIcon"`
 	RankIcon string `json:"rankIcon"`
+	TierIcon string `json:"tierIcon"`
 }
 
 type StatsCollection struct {

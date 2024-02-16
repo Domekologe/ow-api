@@ -107,7 +107,7 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	ps.Name = pd.Find(".Profile-player--name").Text()
 
 	platforms := make(map[string]Platform)
-
+        
 	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
 		id, _ := sel.Attr("id")
 
@@ -129,8 +129,9 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 			RankWrapper: rankWrapper,
 			ProfileView: view,
 		}
+        
 	})
-
+    
 	platform, exists := platforms[platformKey]
 
 	if !exists {
@@ -185,8 +186,10 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	switch platformKey {
 	case PlatformPC:
 		platformKey = "mouseKeyboard"
+	
+    case PlatformConsole:
+		platformKey = "controller"
 	}
-
 	// Parse the API response first
 	var ps PlayerStatsProfile
 
@@ -405,7 +408,6 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
-
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])

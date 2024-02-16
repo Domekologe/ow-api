@@ -326,7 +326,7 @@ func retrievePlayers(tag string) ([]Player, error) {
 
 var (
 	endorsementRegexp = regexp.MustCompile("/(\\d+)-([a-z0-9]+)\\.svg")
-	rankRegexp        = regexp.MustCompile(`https://\S+Rank_([a-zA-Z]+)Tier-(\d+[a-f0-9]+)\.png`)
+	rankRegexp        = regexp.MustCompile(`https://\S+Rank_([a-zA-Z]+)Tier-([a-f0-9]+)\.png`)
 	tierRegexp        = regexp.MustCompile(`https://\S+TierDivision_(\d+)-[a-f0-9]+\.png`)
 	filterRegexp      = regexp.MustCompile("^([a-zA-Z]+)Filter$")
 )
@@ -423,6 +423,7 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 		// Rank selections.
 
 		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
+        
 		// Format is /(offense|support|...)-HEX.svg
 		role := path.Base(roleIcon)
 		role = role[0:strings.Index(role, "-")]

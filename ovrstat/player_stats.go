@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,6 +35,31 @@ var (
 	ErrInvalidPlatform = errors.New("Invalid platform")
 )
 
+//Adding function to convert ID from Search to usable URL
+func GetUnlockInfo(unlockID string) (*UnlockData, error) {
+	unlockApiURL := "https://overwatch.blizzard.com/en-us/search/unlocks/?unlockIds=" + url.QueryEscape(unlockID)
+
+	resp, err := http.Get(unlockApiURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var unlocks []UnlockData
+	if err := json.NewDecoder(resp.Body).Decode(&unlocks); err != nil {
+		return nil, err
+	}
+
+	for _, u := range unlocks {
+		if u.ID == unlockID {
+			return &u, nil
+		}
+	}
+
+	return nil, fmt.Errorf("Unlock ID %s not found", unlockID)
+}
+
+
 
 
 // Stats retrieves player stats
@@ -62,11 +88,21 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 		if player.BattleTag == unformatedTag {
 			playerFound = true
 			if player.IsPublic {
+				ps.NamecardID = player.Namecard
 				break
 			} else {
 				ps.Private = true
 				return &ps, nil
 			}
+		}
+	}
+	
+	//If Namecard is set, get Data
+	if ps.NamecardID != "" {
+		unlockInfo, err := GetUnlockInfo(ps.NamecardID)
+		if err == nil {
+			ps.NamecardTitle = unlockInfo.Name
+			ps.NamecardImage = unlockInfo.Icon
 		}
 	}
 
@@ -205,11 +241,21 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 		if player.BattleTag == unformatedTag {
 			playerFound = true
 			if player.IsPublic {
+				ps.NamecardID = player.Namecard
 				break
 			} else {
 				ps.Private = true
 				return &ps, nil
 			}
+		}
+	}
+
+	//If Namecard is set, get Data
+	if ps.NamecardID != "" {
+		unlockInfo, err := GetUnlockInfo(ps.NamecardID)
+		if err == nil {
+			ps.NamecardTitle = unlockInfo.Name
+			ps.NamecardImage = unlockInfo.Icon
 		}
 	}
 
@@ -287,19 +333,6 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 func retrievePlayers(tag string) ([]Player, error) {
     if strings.Contains(tag, "-"){
         tag = strings.Replace(tag, "-", "#", -1)
@@ -343,6 +376,22 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
+	
+	// Try to get Namecard
+	if namecardAttr, exists := s.Attr("namecard-id"); exists {
+		ps.NamecardID = namecardAttr
+
+		// Hole die Info aus Blizzard Unlocks API
+		unlockInfo, err := GetUnlockInfo(namecardAttr)
+		if err == nil {
+			ps.NamecardTitle = unlockInfo.Name
+			ps.NamecardImage = unlockInfo.Icon
+		}
+	}
+
+
+
+
 
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
@@ -408,6 +457,21 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
 	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
     ps.Title = s.Find(".Profile-player--title").Text()
+	
+	// Try to get Namecard
+	if namecardAttr, exists := s.Attr("namecard-id"); exists {
+		ps.NamecardID = namecardAttr
+
+		// Hole die Info aus Blizzard Unlocks API
+		unlockInfo, err := GetUnlockInfo(namecardAttr)
+		if err == nil {
+			ps.NamecardTitle = unlockInfo.Name
+			ps.NamecardImage = unlockInfo.Icon
+		}
+	}
+	
+	
+	
 	// Parse Endorsement Icon path (/svg?path=)
 	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
 		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])

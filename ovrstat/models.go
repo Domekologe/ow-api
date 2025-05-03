@@ -9,6 +9,9 @@ type PlayerStats struct {
 	Endorsement      int                        `json:"endorsement"`
 	EndorsementIcon  string                     `json:"endorsementIcon"`
     Title            string                     `json:"title"`
+	NamecardID       string                     `json:"namecardId"`
+	NamecardTitle    string                     `json:"namecardTitle"` 
+	NamecardImage    string                     `json:"namecardImage"`
 	Ratings          []Rating                   `json:"ratings"`
 	GamesPlayed      int                        `json:"gamesPlayed"`
 	GamesWon         int                        `json:"gamesWon"`
@@ -24,6 +27,9 @@ type PlayerStatsProfile struct {
 	Endorsement      int                        `json:"endorsement"`
 	EndorsementIcon  string                     `json:"endorsementIcon"`
     Title            string                     `json:"title"`
+	NamecardID       string                     `json:"namecardId"`
+	NamecardTitle    string                     `json:"namecardTitle"` 
+	NamecardImage    string                     `json:"namecardImage"`
 	Ratings          []Rating                   `json:"ratings"`
 	Private          bool                       `json:"private"`
 }
@@ -82,6 +88,7 @@ type Player struct {
 	Portrait  string `json:"portrait"`
 	Frame     string `json:"frame"`
 	IsPublic  bool   `json:"isPublic"`
+	Namecard  string `json:"namecard"`
 }
 
 // Platform represents a supported platform (PC, Console)
@@ -90,4 +97,20 @@ type Platform struct {
 	Active      bool
 	RankWrapper *goquery.Selection
 	ProfileView *goquery.Selection
+}
+
+type UnlockData struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`  
+	Icon  string `json:"icon"`  
+
+	// Optional, wenn du mehr brauchst:
+	Type struct {
+		Name string `json:"name"`
+	} `json:"type"`
+
+	Hero struct {
+		Name string `json:"name"`
+		Icon string `json:"icon"`
+	} `json:"hero"`
 }

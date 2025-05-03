@@ -1,3 +1,5 @@
+# I am currently investigating an issue with the new Player Search System
+
 <p align="center">
 <img src="service/static/assets/logo.png" width="310" height="71" border="0" alt="ovrstat">
 <br>

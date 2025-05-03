@@ -103,14 +103,4 @@ type UnlockData struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`  
 	Icon  string `json:"icon"`  
-
-	// Optional, wenn du mehr brauchst:
-	Type struct {
-		Name string `json:"name"`
-	} `json:"type"`
-
-	Hero struct {
-		Name string `json:"name"`
-		Icon string `json:"icon"`
-	} `json:"hero"`
 }

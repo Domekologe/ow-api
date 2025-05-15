@@ -30,6 +30,8 @@ type PlayerStatsProfile struct {
 	NamecardID       string                     `json:"namecardId"`
 	NamecardTitle    string                     `json:"namecardTitle"` 
 	NamecardImage    string                     `json:"namecardImage"`
+	CompetitiveStats	CompetitiveSummary	`json:"competitiveStats,omitempty"`
+	QuickplayStats		QuickplaySummary	`json:"quickplayStats,omitempty"`
 	Ratings          []Rating                   `json:"ratings"`
 	Private          bool                       `json:"private"`
 }
@@ -41,6 +43,23 @@ type Rating struct {
 	RoleIcon string `json:"roleIcon"`
 	RankIcon string `json:"rankIcon"`
 	TierIcon string `json:"tierIcon"`
+}
+
+type CompetitiveSummary struct {
+	Season 			*int 						`json:"season,omitempty"`
+	GamesPlayed      int       					`json:"gamesPlayed,omitempty"`
+	GamesWon         int        				`json:"gamesWon,omitempty"`
+	GamesLost        int        				`json:"gamesLost,omitempty"`
+	TimePlayed       string     				`json:"timePlayed,omitempty"`
+	MostPlayedHero	 string 					`json:"mostPlayedHero,omitempty"`
+}
+
+type QuickplaySummary struct {
+	GamesPlayed      int       					`json:"gamesPlayed,omitempty"`
+	GamesWon         int        				`json:"gamesWon,omitempty"`
+	GamesLost        int        				`json:"gamesLost,omitempty"`
+	TimePlayed       string     				`json:"timePlayed,omitempty"`
+	MostPlayedHero	 string 					`json:"mostPlayedHero,omitempty"`
 }
 
 type StatsCollection struct {

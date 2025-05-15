@@ -213,7 +213,6 @@ func addGameStats(ps *PlayerStats, statsCollection *StatsCollection) {
 	}
 }
 
-
 // Only Gets Profile Stats
 // This part is and will be mainly used in OWidget 2 Application
 
@@ -328,6 +327,62 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 
 	// Scrapes all stats for the passed user and sets struct member data
 	parseGeneralInfoProfile(platform, pd.Find(".Profile-masthead").First(), &ps)
+	
+	careerStats := parseCareerStats(platform.ProfileView.Find(".stats.competitive-view"))
+	
+	if heroStats, ok := careerStats["allHeroes"]; ok {
+		if gamesPlayed, ok := heroStats.Game["gamesPlayed"]; ok {
+			ps.CompetitiveStats.GamesPlayed = gamesPlayed.(int)
+		}
+		if gamesWon, ok := heroStats.Game["gamesWon"]; ok {
+			ps.CompetitiveStats.GamesWon = gamesWon.(int)
+		}
+		if gamesLost, ok := heroStats.Game["gamesLost"]; ok {
+			ps.CompetitiveStats.GamesLost = gamesLost.(int)
+		}
+		if timePlayed, ok := heroStats.Game["timePlayed"]; ok {
+			ps.CompetitiveStats.TimePlayed = timePlayed.(string)
+		}
+	}
+	careerStatsQP := parseCareerStats(platform.ProfileView.Find(".stats.quickPlay-view"))
+	if seasonAttr, exists := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2"); exists {
+		if seasonNumber, err := strconv.Atoi(seasonAttr); err == nil {
+			ps.CompetitiveStats.Season = &seasonNumber
+		}
+	}
+
+	if heroStats, ok := careerStatsQP["allHeroes"]; ok {
+		if gamesPlayed, ok := heroStats.Game["gamesPlayed"]; ok {
+			ps.QuickplayStats.GamesPlayed = gamesPlayed.(int)
+		}
+		if gamesWon, ok := heroStats.Game["gamesWon"]; ok {
+			ps.QuickplayStats.GamesWon = gamesWon.(int)
+		}
+		if gamesLost, ok := heroStats.Game["gamesLost"]; ok {
+			ps.QuickplayStats.GamesLost = gamesLost.(int)
+		}
+		if timePlayed, ok := heroStats.Game["timePlayed"]; ok {
+			ps.QuickplayStats.TimePlayed = timePlayed.(string)
+		}
+	}
+	
+	mostPlayedHero := platform.ProfileView.
+		Find(".Profile-heroSummary--view.competitive-view").
+		Find(".Profile-progressBar-title").
+		First().
+		Text()
+
+	ps.CompetitiveStats.MostPlayedHero = strings.TrimSpace(mostPlayedHero)
+	
+	mostPlayedHeroQP := platform.ProfileView.
+		Find(".Profile-heroSummary--view.quickPlay-view").
+		Find(".Profile-progressBar-title").
+		First().
+		Text()
+
+	ps.QuickplayStats.MostPlayedHero = strings.TrimSpace(mostPlayedHeroQP)
+
+
 
 	return &ps, nil
 }

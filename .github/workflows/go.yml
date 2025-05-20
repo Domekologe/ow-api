@@ -1,4 +1,4 @@
-name: Go
+name: Build owapi
 
 on:
   push:
@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -20,8 +21,17 @@ jobs:
         with:
           go-version: '1.20'
 
-      - name: Build
-        run: go build -v ./...
+      - name: Build owapi
+        run: |
+          mkdir -p build
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            go build -o build/owapi.exe ./...
+          else
+            go build -o build/owapi ./...
+          fi
 
-      - name: Test
-        run: go test -v ./...
+      - name: Upload Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: owapi-${{ matrix.os }}
+          path: build/*

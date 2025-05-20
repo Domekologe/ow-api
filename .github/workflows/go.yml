@@ -24,14 +24,14 @@ jobs:
       - name: Build owapi
         run: |
           mkdir -p build
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            go build -o build/owapi.exe ./cmd/owapi
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            go build -o build/owapi.exe .
           else
-            go build -o build/owapi ./cmd/owapi
+            go build -o build/owapi .
           fi
 
-      - name: Upload Binary
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: owapi-${{ matrix.os }}
+          name: owapi-${{ runner.os }}
           path: build/*

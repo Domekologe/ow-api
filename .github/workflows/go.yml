@@ -21,16 +21,21 @@ jobs:
         with:
           go-version: '1.20'
 
-      - name: Build owapi
+      - name: Build owapi on Linux
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
           mkdir -p build
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            go build -o build/owapi.exe .
-          else
-            go build -o build/owapi .
-          fi
+          go build -o build/owapi .
 
-      - name: Upload Build Artifact
+      - name: Build owapi on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          mkdir build
+          go build -o build/owapi.exe .
+
+      - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
           name: owapi-${{ runner.os }}

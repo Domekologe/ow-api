@@ -12,6 +12,9 @@ import (
 	"unicode"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/pkg/errors"
+	"io"
+	"net/http/cookiejar"
+	"time"
 )
 
 const (
@@ -33,31 +36,139 @@ var (
 
 	// ErrInvalidPlatform is thrown when the passed params are incorrect
 	ErrInvalidPlatform = errors.New("Invalid platform")
+	
+	owClient *http.Client
+	
+	Debug    = true
 )
+
+func getOWClient() *http.Client {
+	if owClient != nil {
+		return owClient
+	}
+	jar, _ := cookiejar.New(nil)
+	owClient = &http.Client{
+		Timeout: 15 * time.Second,
+		Jar:     jar,
+	}
+	if Debug {
+		fmt.Println("[DEBUG] http.Client initialisiert mit CookieJar")
+	}
+	return owClient
+}
+
+func primeOWSession(c *http.Client) error {
+	url := "https://overwatch.blizzard.com/en-us/search/"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("prime build request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; ovrstat)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+
+	if Debug {
+		fmt.Println("[DEBUG] Prime Request URL:", url)
+		fmt.Println("[DEBUG] Prime Request Headers:", req.Header)
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return fmt.Errorf("prime do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if Debug {
+		fmt.Printf("[DEBUG] Prime Response Status: %d %s\n", resp.StatusCode, resp.Status)
+	}
+
+	io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("prime session failed: %d %s", resp.StatusCode, resp.Status)
+	}
+	return nil
+}
 
 //Adding function to convert ID from Search to usable URL
 func GetUnlockInfo(unlockID string) (*UnlockData, error) {
-	unlockApiURL := "https://overwatch.blizzard.com/en-us/search/unlocks/?unlockIds=" + url.QueryEscape(unlockID)
+	c := getOWClient()
 
-	resp, err := http.Get(unlockApiURL)
+	// Session vorbereiten (holt Cookies)
+	if err := primeOWSession(c); err != nil {
+		return nil, err
+	}
+
+	base := "https://overwatch.blizzard.com/en-us/search/unlocks/"
+	q := url.Values{}
+	q.Set("unlockIds", unlockID)
+	fullURL := base + "?" + q.Encode()
+
+	req, err := http.NewRequest("GET", fullURL, nil)
+	if err != nil { return nil, err }
+	
+	// Wichtigste Header:
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://overwatch.blizzard.com/en-us/search/")
+	req.Header.Set("Accept-Language", "en,de-DE;q=0.9,de;q=0.8,en-US;q=0.7")
+
+	// XHR/CORS/Client Hints – wie im HAR:
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-CH-UA", "\"Chromium\";v=\"135\", \"Not-A.Brand\";v=\"99\"")
+	req.Header.Set("Sec-CH-UA-Mobile", "?0")
+	req.Header.Set("Sec-CH-UA-Platform", "\"Windows\"")
+
+	if Debug {
+		fmt.Println("[DEBUG] Unlock Request URL:", fullURL)
+		fmt.Println("[DEBUG] Unlock Request Headers:", req.Header)
+	}
+
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if Debug {
+		fmt.Printf("[DEBUG] Unlock Response Status: %d %s\n", resp.StatusCode, resp.Status)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		if Debug {
+			fmt.Println("[DEBUG] Unlock Response Body:", string(b))
+		}
+		return nil, fmt.Errorf("unlocks %d: %s", resp.StatusCode, string(b))
+	}
 
 	var unlocks []UnlockData
 	if err := json.NewDecoder(resp.Body).Decode(&unlocks); err != nil {
 		return nil, err
 	}
 
+	if Debug {
+		fmt.Printf("[DEBUG] Decoded Unlocks (%d): %+v\n", len(unlocks), unlocks)
+	}
+
 	for _, u := range unlocks {
 		if u.ID == unlockID {
+			if Debug {
+				fmt.Println("[DEBUG] Match found:", u)
+			}
 			return &u, nil
 		}
 	}
 
+	if Debug {
+		fmt.Println("[DEBUG] Unlock not found for ID:", unlockID)
+	}
 	return nil, fmt.Errorf("Unlock ID %s not found", unlockID)
 }
+
 
 
 

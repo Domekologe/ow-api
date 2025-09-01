@@ -94,7 +94,7 @@ func primeOWSession(c *http.Client) error {
 func GetUnlockInfo(unlockID string) (*UnlockData, error) {
 	c := getOWClient()
 
-	// Session vorbereiten (holt Cookies)
+	// Session Prepare
 	if err := primeOWSession(c); err != nil {
 		return nil, err
 	}
@@ -107,13 +107,10 @@ func GetUnlockInfo(unlockID string) (*UnlockData, error) {
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil { return nil, err }
 	
-	// Wichtigste Header:
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36")
 	req.Header.Set("Referer", "https://overwatch.blizzard.com/en-us/search/")
 	req.Header.Set("Accept-Language", "en,de-DE;q=0.9,de;q=0.8,en-US;q=0.7")
-
-	// XHR/CORS/Client Hints – wie im HAR:
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Sec-Fetch-Mode", "cors")

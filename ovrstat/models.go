@@ -4,37 +4,38 @@ import "github.com/PuerkitoBio/goquery"
 
 // PlayerStats holds all stats on a specified Overwatch player
 type PlayerStats struct {
-	Icon             string                     `json:"icon"`
-	Name             string                     `json:"name"`
-	Endorsement      int                        `json:"endorsement"`
-	EndorsementIcon  string                     `json:"endorsementIcon"`
+    Icon             string                     `json:"icon"`
+    Name             string                     `json:"name"`
+    Endorsement      int                        `json:"endorsement"`
+    EndorsementIcon  string                     `json:"endorsementIcon"`
     Title            string                     `json:"title"`
-	NamecardID       string                     `json:"namecardId"`
-	NamecardTitle    string                     `json:"namecardTitle"` 
-	NamecardImage    string                     `json:"namecardImage"`
-	Ratings          []Rating                   `json:"ratings"`
-	GamesPlayed      int                        `json:"gamesPlayed"`
-	GamesWon         int                        `json:"gamesWon"`
-	GamesLost        int                        `json:"gamesLost"`
-	QuickPlayStats   QuickPlayStatsCollection   `json:"quickPlayStats"`
-	CompetitiveStats CompetitiveStatsCollection `json:"competitiveStats"`
-	Private          bool                       `json:"private"`
+    NamecardID       string                     `json:"namecardId,omitempty"`    
+    NamecardTitle    string                     `json:"namecardTitle,omitempty"` 
+    NamecardImage    string                     `json:"namecardImage"`
+    Ratings          []Rating                   `json:"ratings"`
+    GamesPlayed      int                        `json:"gamesPlayed"`
+    GamesWon         int                        `json:"gamesWon"`
+    GamesLost        int                        `json:"gamesLost"`
+    QuickPlayStats   QuickPlayStatsCollection   `json:"quickPlayStats"`
+    CompetitiveStats CompetitiveStatsCollection `json:"competitiveStats"`
+    Private          bool                       `json:"private"`
 }
 
 type PlayerStatsProfile struct {
-	Icon             string                     `json:"icon"`
-	Name             string                     `json:"name"`
-	Endorsement      int                        `json:"endorsement"`
-	EndorsementIcon  string                     `json:"endorsementIcon"`
+    Icon             string                     `json:"icon"`
+    Name             string                     `json:"name"`
+    Endorsement      int                        `json:"endorsement"`
+    EndorsementIcon  string                     `json:"endorsementIcon"`
     Title            string                     `json:"title"`
-	NamecardID       string                     `json:"namecardId"`
-	NamecardTitle    string                     `json:"namecardTitle"` 
-	NamecardImage    string                     `json:"namecardImage"`
-	CompetitiveStats	CompetitiveSummary	`json:"competitiveStats,omitempty"`
-	QuickplayStats		QuickplaySummary	`json:"quickplayStats,omitempty"`
-	Ratings          []Rating                   `json:"ratings"`
-	Private          bool                       `json:"private"`
+    NamecardID       string                     `json:"namecardId,omitempty"`    
+    NamecardTitle    string                     `json:"namecardTitle,omitempty"` 
+    NamecardImage    string                     `json:"namecardImage"`
+    CompetitiveStats CompetitiveSummary         `json:"competitiveStats,omitempty"`
+    QuickplayStats   QuickplaySummary           `json:"quickplayStats,omitempty"`
+    Ratings          []Rating                   `json:"ratings"`
+    Private          bool                       `json:"private"`
 }
+
 
 type Rating struct {
 	Group    string `json:"group"`

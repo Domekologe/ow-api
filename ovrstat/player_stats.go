@@ -192,11 +192,13 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 
 	var playerFound bool
 	var unformatedTag = strings.Replace(tag, "-", "#", -1)
-	for _, player := range players {
-		if player.BattleTag == unformatedTag {
+	for _, p := range players {
+		if p.BattleTag == unformatedTag {
 			playerFound = true
-			if player.IsPublic {
-				ps.NamecardID = player.Namecard
+			if p.IsPublic {
+				ps.NamecardImage = p.Namecard
+				ps.NamecardID = ""       
+				ps.NamecardTitle = ""    
 				break
 			} else {
 				ps.Private = true
@@ -206,13 +208,13 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	}
 	
 	//If Namecard is set, get Data
-	if ps.NamecardID != "" {
+	/*if ps.NamecardID != "" {
 		unlockInfo, err := GetUnlockInfo(ps.NamecardID)
 		if err == nil {
 			ps.NamecardTitle = unlockInfo.Name
 			ps.NamecardImage = unlockInfo.Icon
 		}
-	}
+	}*/
 
 	if !playerFound {
 		return nil, ErrPlayerNotFound
@@ -344,11 +346,13 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 
 	var playerFound bool
 	var unformatedTag = strings.Replace(tag, "-", "#", -1)
-	for _, player := range players {
-		if player.BattleTag == unformatedTag {
+	for _, p := range players {
+		if p.BattleTag == unformatedTag {
 			playerFound = true
-			if player.IsPublic {
-				ps.NamecardID = player.Namecard
+			if p.IsPublic {
+				ps.NamecardImage = p.Namecard
+				ps.NamecardID = ""    
+				ps.NamecardTitle = ""  
 				break
 			} else {
 				ps.Private = true
@@ -358,13 +362,13 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	}
 
 	//If Namecard is set, get Data
-	if ps.NamecardID != "" {
+	/*if ps.NamecardID != "" {
 		unlockInfo, err := GetUnlockInfo(ps.NamecardID)
 		if err == nil {
 			ps.NamecardTitle = unlockInfo.Name
 			ps.NamecardImage = unlockInfo.Icon
 		}
-	}
+	}*/
 
 	if !playerFound {
 		return nil, ErrPlayerNotFound

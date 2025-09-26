@@ -5,6 +5,9 @@
 <a href="https://godoc.org/github.com/s32x/ovrstat/ovrstat"><img src="https://godoc.org/github.com/s32x/ovrstat/ovrstat?status.svg" alt="GoDoc"></a>
 </p>
 
+ATTENTION!
+With the latest update `namecardID` and `namecardTitle` are removed! (Thanks to Blizzard for again making changes)
+
 After ovrstat is obsolete/archived and OW-API didn't get specific values I made an functional version here for my own.
 Please use OW-API as an "official" Continuation.
 

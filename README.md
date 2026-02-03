@@ -70,13 +70,13 @@ The server will start on port 8080 (default).
 You can run the official image directly:
 
 ```bash
-docker run -p 8080:8080 domekologe/ow-api:latest
+docker run -p 8080:8080 domekologe/owapi:latest
 ```
 
 Or build it locally:
 ```bash
-docker build -t ow-api .
-docker run -p 8080:8080 ow-api
+docker build -t owapi .
+docker run -p 8080:8080 owapi
 ```
 
 ## API Usage

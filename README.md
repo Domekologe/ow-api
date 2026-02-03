@@ -1,8 +1,8 @@
 <p align="center">
 <img src="service/static/assets/logo.png" width="310" height="71" border="0" alt="ovrstat">
 <br>
-<a href="https://goreportcard.com/report/github.com/s32x/ovrstat"><img src="https://goreportcard.com/badge/github.com/s32x/ovrstat" alt="Go Report Card"></a>
-<a href="https://godoc.org/github.com/s32x/ovrstat/ovrstat"><img src="https://godoc.org/github.com/s32x/ovrstat/ovrstat?status.svg" alt="GoDoc"></a>
+<a href="https://goreportcard.com/badge/github.com/Domekologe/ow-api"><img src="https://goreportcard.com/badge/github.com/Domekologe/ow-api" alt="Go Report Card"></a>
+<a href="https://pkg.go.dev/badge/github.com/Domekologe/ow-api"><img src="https://pkg.go.dev/badge/github.com/Domekologe/ow-api" alt="GoDoc"></a>
 </p>
 
 ## Latest Changes

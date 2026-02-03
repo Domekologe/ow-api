@@ -11,27 +11,82 @@ With the latest update `namecardID` and `namecardTitle` are removed! (Thanks to 
 
 ## General
 After ovrstat is obsolete/archived and OW-API didn't get specific values I made an functional version here for my own.
-Please use OW-API as an "official" Continuation.
 
 `ovrstat` is a simple web scraper for the Overwatch stats site that parses and serves the data retrieved as JSON. Included is the go package used to scrape the info for usage in any go binary. This is a single endpoint web-scraping API that takes the full payload of information that we retrieve from Blizzard and passes it through to you in a single response. Things like caching and splitting data across multiple responses could likely improve performance, but in pursuit of keeping things simple, ovrstat does not implement them.
 
-## Getting Started
-### Installing Locally with Go
-To start using ovrstat on your local system, install Go and run `go get`:
+## Configuration
+The application can be configured via environment variables:
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `PORT` | The HTTP port the server listens on | `8080` |
+
+### Changing the Port
+**Linux (Bash):**
+```bash
+export PORT=9000
+./ow-api
 ```
-$ go get github.com/Domekologe/ow-api
+
+**Windows (PowerShell):**
+```powershell
+$env:PORT="9000"
+.\ow-api.exe
 ```
-This will install the ovrstat service on your machine. Running the following will then launch the service.
+
+**Direct in main.go File:**
+service.Start(getenv("PORT", "<PORT>")) 
+Change the "<PORT> Value
+
+## Installation & Usage
+
+### 1. Build from Source
+Ensure you have [Go](https://go.dev/dl/) installed (minimum 1.24).
+
+```bash
+# Clone the repository
+git clone https://github.com/Domekologe/ow-api.git
+cd ow-api
+
+# Build the binary
+go build .
 ```
-$ ovrstat
+This will create a binary named `ow-api` (or `ow-api.exe` on Windows).
+
+### 2. Run the Application
+
+**Linux / macOS:**
+```bash
+./ow-api
 ```
-### Local API Usage
+
+**Windows:**
+```powershell
+.\ow-api.exe
+```
+The server will start on port 8080 (default).
+
+### 3. Docker
+You can run the official image directly:
+
+```bash
+docker run -p 8080:8080 domekologe/ow-api:latest
+```
+
+Or build it locally:
+```bash
+docker build -t ow-api .
+docker run -p 8080:8080 ow-api
+```
+
+## API Usage
 
 Below is an example of using the REST endpoint (note: CASE matters for the username/tag):
 ```
 http://localhost:8080/stats/pc/Viz-1213
 http://localhost:8080/stats/console/Viz-1213
 ```
+
 ### Using Go to retrieve Stats
 
 ```go

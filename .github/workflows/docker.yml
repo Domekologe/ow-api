@@ -27,5 +27,5 @@ jobs:
           context: .
           push: true
           tags: |
-            domekologe/ow-api:latest
-            domekologe/ow-api:${{ github.ref_name }}
+            domekologe/owapi:latest
+            domekologe/owapi:${{ github.ref_name }}

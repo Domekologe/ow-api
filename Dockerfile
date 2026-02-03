@@ -1,26 +1,20 @@
 # ============================== BINARY BUILDER ==============================
-FROM golang:latest as builder
+FROM golang:1.22-alpine AS builder
 
-# Copy in the source
-COPY . /src
 WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Dependencies
-RUN apt-get update -y 
-RUN apt-get upgrade -y
-
-# Vendor, Test and Build the Binary
-RUN go mod vendor
+COPY . .
 RUN go test ./...
-RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o ./bin/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o server
 
 # =============================== FINAL IMAGE ===============================
-FROM alpine:latest
+FROM alpine:3.19
 
-# Dependencies
-RUN apk update 
 RUN apk add --no-cache ca-certificates
 
-# Static files and Binary
-COPY --from=builder /src/bin/server /usr/local/bin/server
-CMD ["server"]
+COPY --from=builder /src/server /usr/local/bin/server
+
+USER nobody
+ENTRYPOINT ["/usr/local/bin/server"]

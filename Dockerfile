@@ -2,6 +2,13 @@
 FROM golang:1.24-alpine AS builder
 
 WORKDIR /src
+
+# Go 1.24.2 Toolchain
+RUN go install golang.org/dl/go1.24.2@latest \
+    && go1.24.2 download
+
+ENV GOTOOLCHAIN=go1.24.2
+
 COPY go.mod go.sum ./
 RUN go mod download
 

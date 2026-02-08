@@ -1,0 +1,24 @@
+[Unit]
+Description=Overwatch API Server
+ConditionPathExists=/opt/api/overwatch
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=voice
+Group=voice
+WorkingDirectory=/opt/api/overwatch
+
+EnvironmentFile=/opt/api/overwatch/.env
+ExecStart=/opt/api/overwatch/api
+
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=owapi
+
+[Install]
+WantedBy=multi-user.target

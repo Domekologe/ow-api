@@ -2,4 +2,9 @@
 /.vscode
 *.iml
 .idea/
-ow-api.exe
+api
+scraper
+*.exe
+redis-data/
+config.yaml
+.env

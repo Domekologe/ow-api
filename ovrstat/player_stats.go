@@ -39,8 +39,8 @@ var (
 	ErrInvalidPlatform = errors.New("Invalid platform")
 
 	owClient *http.Client
-
-	Debug = true
+	// Debug enables debug logging (set to false by default)
+	Debug = false
 )
 
 func getOWClient() *http.Client {

@@ -2,8 +2,8 @@
 /.vscode
 *.iml
 .idea/
-api
-scraper
+/api
+/scraper
 *.exe
 redis-data/
 config.yaml

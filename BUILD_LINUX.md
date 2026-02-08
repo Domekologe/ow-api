@@ -2,11 +2,21 @@
 
 This guide explains how to build and deploy the Overwatch API on a Linux server.
 
+## Prerequisites
+
+**IMPORTANT:** You must have the **complete source code** on the server to build the binaries. The server needs:
+- All `.go` source files
+- The `cmd/scraper/` directory with `main.go`
+- `go.mod` and `go.sum` files
+- All package directories (`ovrstat/`, `cache/`, `config/`, `service/`)
+
+You **cannot** build on the server if you only have the compiled `.exe` files from Windows!
+
 ## Building the Binaries
 
 The project consists of **two separate binaries**:
-- `api` - The main API server
-- `scraper` - The background scraper service
+- `api` - The main API server (from `main.go` in root)
+- `scraper` - The background scraper service (from `cmd/scraper/main.go`)
 
 ### Option 1: Using Make (Recommended)
 
@@ -19,7 +29,7 @@ make build-api      # Creates 'api' binary
 make build-scraper  # Creates 'scraper' binary
 ```
 
-### Option 2: Manual Build
+### Option 2: Manual Build (Without Make)
 
 ```bash
 # Build API server
@@ -29,9 +39,43 @@ go build -o api .
 go build -o scraper ./cmd/scraper
 ```
 
+> **Note:** On Linux, use `api` and `scraper` (no `.exe` extension)
+
+## Uploading Source Code to Server
+
+You have two options to get the source code on the server:
+
+### Option A: Git Clone (Recommended)
+
+```bash
+# On the server
+cd /opt/api
+sudo git clone https://github.com/Domekologe/ow-api.git overwatch
+cd overwatch
+```
+
+### Option B: Upload via rsync/scp
+
+```bash
+# From your local machine (Windows with WSL or Git Bash)
+# Replace 'user@server' with your actual server details
+rsync -avz --exclude 'cache/' --exclude '*.exe' \
+  /w/_Git/ow-api/ user@dks010.domekologe.eu:/opt/api/overwatch/
+
+# Or using scp
+scp -r /w/_Git/ow-api user@dks010.domekologe.eu:/opt/api/
+```
+
+**Verify the source code is complete:**
+```bash
+# On the server
+ls -la /opt/api/overwatch/cmd/scraper/
+# Should show: main.go
+```
+
 ## Deployment to `/opt/api/overwatch`
 
-### 1. Build the binaries locally or on the server
+### 1. Build the binaries on the server
 
 ```bash
 cd /path/to/ow-api

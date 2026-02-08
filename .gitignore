@@ -8,3 +8,4 @@ scraper
 redis-data/
 config.yaml
 .env
+*.exe~

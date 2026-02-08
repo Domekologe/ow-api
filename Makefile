@@ -3,10 +3,19 @@
 .PHONY: all build build-api build-scraper clean test run docker-build docker-up docker-down help
 
 # Detect OS and set binary extensions
-ifeq ($(OS),Windows_NT)
+# Check if we're on Windows (works in Git Bash, WSL, and native Windows)
+UNAME_S := $(shell uname -s 2>/dev/null || echo Windows)
+ifeq ($(findstring MINGW,$(UNAME_S)),MINGW)
+	API_BIN := api.exe
+	SCRAPER_BIN := scraper.exe
+else ifeq ($(findstring MSYS,$(UNAME_S)),MSYS)
+	API_BIN := api.exe
+	SCRAPER_BIN := scraper.exe
+else ifeq ($(UNAME_S),Windows)
 	API_BIN := api.exe
 	SCRAPER_BIN := scraper.exe
 else
+	# Linux, macOS, etc.
 	API_BIN := api
 	SCRAPER_BIN := scraper
 endif

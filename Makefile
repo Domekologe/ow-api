@@ -2,22 +2,31 @@
 
 .PHONY: all build build-api build-scraper clean test run docker-build docker-up docker-down help
 
+# Detect OS and set binary extensions
+ifeq ($(OS),Windows_NT)
+	API_BIN := api.exe
+	SCRAPER_BIN := scraper.exe
+else
+	API_BIN := api
+	SCRAPER_BIN := scraper
+endif
+
 # Default target
 all: build
 
 # Build both binaries
 build: build-api build-scraper
-	@echo "✓ Build complete: api.exe and scraper.exe"
+	@echo "✓ Build complete: $(API_BIN) and $(SCRAPER_BIN)"
 
 # Build API binary
 build-api:
 	@echo "Building API server..."
-	go build -o api.exe .
+	go build -o $(API_BIN) .
 
 # Build Scraper binary
 build-scraper:
 	@echo "Building Scraper service..."
-	go build -o scraper.exe ./cmd/scraper
+	go build -o $(SCRAPER_BIN) ./cmd/scraper
 
 # Clean build artifacts
 clean:

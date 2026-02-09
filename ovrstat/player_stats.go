@@ -569,6 +569,27 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 		Text()
 
 	ps.CompetitiveStats.MostPlayedHero = strings.TrimSpace(mostPlayedHero)
+	ps.CompetitiveStats.MostPlayedHeroTimePlayed = platform.ProfileView.
+		Find(".Profile-heroSummary--view.competitive-view").
+		Find(".Profile-progressBar-description").
+		First().
+		Text()
+
+	if heroStats, ok := careerStats[cleanJSONKey(ps.CompetitiveStats.MostPlayedHero)]; ok {
+		if val, ok := heroStats.Game["gamesPlayed"]; ok {
+			if i, ok := val.(int); ok {
+				ps.CompetitiveStats.MostPlayedHeroGamesPlayed = i
+			}
+		}
+		if val, ok := heroStats.Game["winPercentage"]; ok {
+			if s, ok := val.(string); ok {
+				clean := strings.Replace(s, "%", "", -1)
+				if i, err := strconv.Atoi(clean); err == nil {
+					ps.CompetitiveStats.MostPlayedHeroWinPercentage = i
+				}
+			}
+		}
+	}
 
 	mostPlayedHeroQP := platform.ProfileView.
 		Find(".Profile-heroSummary--view.quickPlay-view").
@@ -577,6 +598,27 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 		Text()
 
 	ps.QuickplayStats.MostPlayedHero = strings.TrimSpace(mostPlayedHeroQP)
+	ps.QuickplayStats.MostPlayedHeroTimePlayed = platform.ProfileView.
+		Find(".Profile-heroSummary--view.quickPlay-view").
+		Find(".Profile-progressBar-description").
+		First().
+		Text()
+
+	if heroStats, ok := careerStatsQP[cleanJSONKey(ps.QuickplayStats.MostPlayedHero)]; ok {
+		if val, ok := heroStats.Game["gamesPlayed"]; ok {
+			if i, ok := val.(int); ok {
+				ps.QuickplayStats.MostPlayedHeroGamesPlayed = i
+			}
+		}
+		if val, ok := heroStats.Game["winPercentage"]; ok {
+			if s, ok := val.(string); ok {
+				clean := strings.Replace(s, "%", "", -1)
+				if i, err := strconv.Atoi(clean); err == nil {
+					ps.QuickplayStats.MostPlayedHeroWinPercentage = i
+				}
+			}
+		}
+	}
 
 	return &ps, nil
 }
@@ -746,6 +788,97 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 func parseDetailedStats(platform Platform, playMode string, sc *StatsCollection) {
 	sc.TopHeroes = parseHeroStats(platform.ProfileView.Find(".Profile-heroSummary--view" + playMode))
 	sc.CareerStats = parseCareerStats(platform.ProfileView.Find(".stats" + playMode))
+
+	// Backfill missing TopHeroes data from CareerStats
+	for heroName, topStats := range sc.TopHeroes {
+		if careerStats, ok := sc.CareerStats[heroName]; ok {
+
+			// Helper closure to parse int from percent string or int value
+			parseVal := func(m map[string]interface{}, key string) int {
+				if v, ok := m[key]; ok {
+					switch val := v.(type) {
+					case int:
+						return val
+					case float64:
+						return int(val)
+					case string:
+						// Handle percentages "49%"
+						clean := strings.Replace(val, "%", "", -1)
+						clean = strings.Replace(clean, ",", "", -1)
+						if i, err := strconv.Atoi(clean); err == nil {
+							return i
+						}
+					}
+				}
+				return 0
+			}
+
+			// Helper for float parsing
+			parseFloat := func(m map[string]interface{}, key string) float64 {
+				if v, ok := m[key]; ok {
+					switch val := v.(type) {
+					case float64:
+						return val
+					case int:
+						return float64(val)
+					case string:
+						clean := strings.Replace(val, "%", "", -1)
+						clean = strings.Replace(clean, ",", "", -1)
+						if f, err := strconv.ParseFloat(clean, 64); err == nil {
+							return f
+						}
+					}
+				}
+				return 0
+			}
+
+			// Backfill logic
+			if topStats.WeaponAccuracy == 0 {
+				topStats.WeaponAccuracy = parseVal(careerStats.Combat, "weaponAccuracy")
+			}
+			if topStats.CriticalHitAccuracy == 0 {
+				topStats.CriticalHitAccuracy = parseVal(careerStats.Combat, "criticalHitAccuracy")
+				if topStats.CriticalHitAccuracy == 0 {
+					topStats.CriticalHitAccuracy = parseVal(careerStats.HeroSpecific, "criticalHitAccuracy") // Try hero specific
+				}
+				if topStats.CriticalHitAccuracy == 0 {
+					topStats.CriticalHitAccuracy = parseVal(careerStats.HeroSpecific, "scopedAccuracy") // Ana specific example
+				}
+			}
+			if topStats.ObjectiveKills == 0 {
+				topStats.ObjectiveKills = parseFloat(careerStats.Combat, "objectiveKills")
+			}
+
+			// New fields backfill
+			if topStats.GamesPlayed == 0 {
+				topStats.GamesPlayed = parseVal(careerStats.Game, "gamesPlayed")
+			}
+			if topStats.GamesLost == 0 {
+				topStats.GamesLost = parseVal(careerStats.Game, "gamesLost")
+			}
+			if topStats.WinPercentage == 0 {
+				topStats.WinPercentage = parseVal(careerStats.Game, "winPercentage")
+			}
+			if topStats.ObjectiveKillsBest == 0 {
+				topStats.ObjectiveKillsBest = parseVal(careerStats.Best, "objectiveKillsMostInGame")
+			}
+			if topStats.HealingDoneBest == 0 {
+				topStats.HealingDoneBest = parseVal(careerStats.Best, "healingDoneMostInGame")
+			}
+			if topStats.DamageDoneBest == 0 {
+				topStats.DamageDoneBest = parseVal(careerStats.Best, "allDamageDoneMostInGame")
+			}
+			if topStats.KillStreakBest == 0 {
+				topStats.KillStreakBest = parseVal(careerStats.Best, "killsStreakBest")
+			}
+			if topStats.MultiKillBest == 0 {
+				topStats.MultiKillBest = parseVal(careerStats.Best, "multikillsBest")
+			}
+			if topStats.EliminationsPerLife == 0 {
+				topStats.EliminationsPerLife = parseFloat(careerStats.Average, "eliminationsPerLife")
+			}
+		}
+	}
 }
 
 // parseHeroStats : Parses stats for each individual hero and returns a map
@@ -753,7 +886,7 @@ func parseHeroStats(heroStatsSelector *goquery.Selection) map[string]*TopHeroSta
 	bhsMap := make(map[string]*TopHeroStats)
 	categoryMap := make(map[string]string)
 
-	heroStatsSelector.Find(".Profile-dropdown option").Each(func(i int, sel *goquery.Selection) {
+	heroStatsSelector.Find(".topheroes-dropdown option").Each(func(i int, sel *goquery.Selection) {
 		optionName := sel.Text()
 		optionVal, _ := sel.Attr("value")
 
@@ -779,16 +912,27 @@ func parseHeroStats(heroStatsSelector *goquery.Selection) map[string]*TopHeroSta
 				bhsMap[heroName].TimePlayed = statVal
 			case "gamesWon":
 				bhsMap[heroName].GamesWon, _ = strconv.Atoi(statVal)
-			case "weaponAccuracy":
-				bhsMap[heroName].WeaponAccuracy, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
-			case "criticalHitAccuracy":
-				bhsMap[heroName].CriticalHitAccuracy, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
+			case "gamesPlayed":
+				bhsMap[heroName].GamesPlayed, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+			case "gamesLost":
+				bhsMap[heroName].GamesLost, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+			case "winPercentage":
+				bhsMap[heroName].WinPercentage, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
+
 			case "eliminationsPerLife":
 				bhsMap[heroName].EliminationsPerLife, _ = strconv.ParseFloat(statVal, 64)
 			case "multikillBest":
-				bhsMap[heroName].MultiKillBest, _ = strconv.Atoi(statVal)
+				bhsMap[heroName].MultiKillBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
 			case "objectiveKills":
 				bhsMap[heroName].ObjectiveKills, _ = strconv.ParseFloat(statVal, 64)
+			case "objectiveKillsBest":
+				bhsMap[heroName].ObjectiveKillsBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+			case "healingDoneBest":
+				bhsMap[heroName].HealingDoneBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+			case "damageDoneBest":
+				bhsMap[heroName].DamageDoneBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+			case "killStreakBest":
+				bhsMap[heroName].KillStreakBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
 			}
 		})
 	})
@@ -801,7 +945,7 @@ func parseCareerStats(careerStatsSelector *goquery.Selection) map[string]*Career
 	heroMap := make(map[string]string)
 
 	// Populates tempHeroMap to match hero ID to name in second scrape
-	careerStatsSelector.Find(".Profile-dropdown option").Each(func(i int, heroSel *goquery.Selection) {
+	careerStatsSelector.Find(".blz-dropdown option").Each(func(i int, heroSel *goquery.Selection) {
 		heroVal, _ := heroSel.Attr("value")
 		heroMap[heroVal] = heroSel.Text()
 	})

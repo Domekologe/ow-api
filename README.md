@@ -15,28 +15,72 @@ After ovrstat is obsolete/archived and OW-API didn't get specific values I made 
 `ovrstat` is a simple web scraper for the Overwatch stats site that parses and serves the data retrieved as JSON. Included is the go package used to scrape the info for usage in any go binary. This is a single endpoint web-scraping API that takes the full payload of information that we retrieve from Blizzard and passes it through to you in a single response. Things like caching and splitting data across multiple responses could likely improve performance, but in pursuit of keeping things simple, ovrstat does not implement them.
 
 ## Configuration
-The application can be configured via environment variables:
+The application can be configured via environment variables or a `config.yaml` file:
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `PORT` | The HTTP port the server listens on | `8080` |
+| `REDIS_ENABLED` | Enable Redis caching | `false` |
+| `REDIS_HOST` | Redis server hostname | `localhost` |
+| `REDIS_PORT` | Redis server port | `6379` |
+| `REDIS_PASSWORD` | Redis password (if required) | `` |
+| `REDIS_DB` | Redis database number | `0` |
+| `CACHE_TTL` | How long to cache player data | `24h` |
+| `API_TIMEOUT` | Timeout before using cache fallback | `5s` |
+| `SCRAPER_ENABLED` | Enable background scraper | `false` |
+| `SCRAPER_INTERVAL` | How often to update cached data | `60m` |
+| `ADMIN_PASSWORD` | Password for admin endpoints | `` (disabled) |
+| `DEBUG` | Enable verbose debug logging | `false` |
 
-### Changing the Port
-**Linux (Bash):**
+### Configuration Files: `config.yaml` vs `.env`
+
+**Important:** There are two ways to configure the application:
+
+#### 1. `config.yaml` (For Local Development)
+- Automatically loaded on startup (if present)
+- Ideal for local development
+- **Not** committed to Git (see `.gitignore`)
+- Example configuration file included in repository
+
+```yaml
+server:
+  port: "8080"
+redis:
+  enabled: true
+  host: "localhost"
+  port: 6379
+admin:
+  password: "my-secure-password"
+```
+
+#### 2. Environment Variables (For Docker/Production)
+- Override `config.yaml` values
+- Ideal for Docker and production deployments
+- `.env` file is just an **example** (see `.env.example`)
+- In Docker: Set variables in `docker-compose.yml` or as system environment variables
+
+**Priority:** Environment Variables > config.yaml > Defaults
+
+### Admin Endpoints
+
+When `ADMIN_PASSWORD` is set, the following protected endpoints are available:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/cache/flush` | POST | Clears the entire Redis cache |
+| `/admin/scraper/trigger` | POST | Shows scraper info (Note: Scraper runs separately) |
+| `/admin/cache/stats` | GET | Shows cache statistics |
+
+**Authentication:**
 ```bash
-export PORT=9000
-./ow-api
-```
+# Flush cache
+curl -X POST http://localhost:8080/admin/cache/flush \
+  -H "Authorization: Bearer your-admin-password"
 
-**Windows (PowerShell):**
-```powershell
-$env:PORT="9000"
-.\ow-api.exe
+# Get cache statistics
+curl http://localhost:8080/admin/cache/stats \
+  -H "Authorization: Bearer your-admin-password"
 ```
-
-**Direct in main.go File:**
-service.Start(getenv("PORT", "<PORT>")) 
-Change the "<PORT> Value
 
 ## Installation & Usage
 
@@ -48,25 +92,78 @@ Ensure you have [Go](https://go.dev/dl/) installed (minimum 1.24).
 git clone https://github.com/Domekologe/ow-api.git
 cd ow-api
 
-# Build the binary
-go build .
+# Build both binaries using Makefile
+make build
+
+# Or build individually:
+make build-api      # Creates api.exe (API Server)
+make build-scraper  # Creates scraper.exe (Background Scraper)
+
+# Or manually with go build (Windows without Make):
+go build -o api.exe .                    # API Server
+go build -o scraper.exe ./cmd/scraper    # Background Scraper
 ```
-This will create a binary named `ow-api` (or `ow-api.exe` on Windows).
+
+> **Note:** On Windows, `make` is not available by default. Use the `go build` commands directly.
+
+**Which binary for what?**
+- **`api.exe`** - Main server (HTTP API on port 8080)
+- **`scraper.exe`** - Background service for automatic cache updates (runs separately)
 
 ### 2. Run the Application
 
-**Linux / macOS:**
+**API Server (Without Redis):**
 ```bash
-./ow-api
+./api.exe
+# or
+make run
 ```
 
-**Windows:**
-```powershell
-.\ow-api.exe
+**With Redis (Local):**
+```bash
+# Redis must be running (e.g. via Docker: docker run -d -p 6379:6379 redis:7-alpine)
+REDIS_ENABLED=true REDIS_HOST=localhost ./api.exe
 ```
+
+**Scraper Service (Separate):**
+```bash
+# Requires Redis
+REDIS_ENABLED=true REDIS_HOST=localhost SCRAPER_ENABLED=true ./scraper.exe
+# or
+make run-scraper
+```
+
 The server will start on port 8080 (default).
 
-### 3. Docker
+### 3. Docker Compose (Recommended)
+The easiest way to run the complete stack with Redis caching and background scraper:
+
+```bash
+# Set admin password (optional but recommended)
+export ADMIN_PASSWORD="your-secure-password"
+
+# Start all services (Redis, API, Scraper)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (clears Redis data)
+docker-compose down -v
+```
+
+The API will be available at `http://localhost:8080` with Redis caching enabled.
+
+**Using Admin Endpoints:**
+```bash
+curl -X POST http://localhost:8080/admin/cache/flush \
+  -H "Authorization: Bearer your-secure-password"
+```
+
+### 4. Docker (Single Container)
 You can run the official image directly:
 
 ```bash
@@ -75,9 +172,24 @@ docker run -p 8080:8080 domekologe/owapi:latest
 
 Or build it locally:
 ```bash
-docker build -t owapi .
+docker build -t owapi --target api .
 docker run -p 8080:8080 owapi
 ```
+
+**Note:** Running a single container without Redis will work but won't have caching enabled.
+
+## How It Works
+
+### Caching Strategy
+1. **First Request**: API scrapes Blizzard's site (slow, ~2-5 seconds)
+2. **Cached Requests**: Instant response from Redis
+3. **Timeout Fallback**: If Blizzard is slow (>5s), returns cached data
+4. **Background Updates**: Scraper refreshes all cached players every hour
+
+### Architecture
+- **API Service**: Handles HTTP requests with Redis caching
+- **Scraper Service**: Periodically updates cached player data
+- **Redis**: Stores player stats with 24h TTL
 
 ## API Usage
 

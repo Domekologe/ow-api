@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Redis Database
+  redis:
+    image: redis:7-alpine
+    container_name: ow-api-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # API Service
+  api:
+    build:
+      context: .
+      target: api
+    container_name: ow-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - CACHE_TTL=24h
+      - API_TIMEOUT=5s
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - DEBUG=false
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthcheck" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Scraper Service
+  scraper:
+    build:
+      context: .
+      target: scraper
+    container_name: ow-api-scraper
+    restart: unless-stopped
+    environment:
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - CACHE_TTL=24h
+      - SCRAPER_ENABLED=true
+      - SCRAPER_INTERVAL=60m
+    depends_on:
+      redis:
+        condition: service_healthy
+
+# Persistent volume for Redis data
+volumes:
+  redis-data:
+    driver: local

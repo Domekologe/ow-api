@@ -6,6 +6,7 @@ on:
       - main
     tags:
       - "v*"
+  workflow_dispatch:
 
 jobs:
   docker:
@@ -21,11 +22,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
           context: .
+          target: api
           push: true
           tags: |
             domekologe/owapi:latest
             domekologe/owapi:${{ github.ref_name }}
+
+      - name: Build and push Scraper image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: scraper
+          push: true
+          tags: |
+            domekologe/owapi:scraper-latest
+            domekologe/owapi:scraper-${{ github.ref_name }}

@@ -4,38 +4,37 @@ import "github.com/PuerkitoBio/goquery"
 
 // PlayerStats holds all stats on a specified Overwatch player
 type PlayerStats struct {
-    Icon             string                     `json:"icon"`
-    Name             string                     `json:"name"`
-    Endorsement      int                        `json:"endorsement"`
-    EndorsementIcon  string                     `json:"endorsementIcon"`
-    Title            string                     `json:"title"`
-    NamecardID       string                     `json:"namecardId,omitempty"`    
-    NamecardTitle    string                     `json:"namecardTitle,omitempty"` 
-    NamecardImage    string                     `json:"namecardImage"`
-    Ratings          []Rating                   `json:"ratings"`
-    GamesPlayed      int                        `json:"gamesPlayed"`
-    GamesWon         int                        `json:"gamesWon"`
-    GamesLost        int                        `json:"gamesLost"`
-    QuickPlayStats   QuickPlayStatsCollection   `json:"quickPlayStats"`
-    CompetitiveStats CompetitiveStatsCollection `json:"competitiveStats"`
-    Private          bool                       `json:"private"`
+	Icon             string                     `json:"icon"`
+	Name             string                     `json:"name"`
+	Endorsement      int                        `json:"endorsement"`
+	EndorsementIcon  string                     `json:"endorsementIcon"`
+	Title            string                     `json:"title"`
+	NamecardID       string                     `json:"namecardId,omitempty"`
+	NamecardTitle    string                     `json:"namecardTitle,omitempty"`
+	NamecardImage    string                     `json:"namecardImage"`
+	Ratings          []Rating                   `json:"ratings"`
+	GamesPlayed      int                        `json:"gamesPlayed"`
+	GamesWon         int                        `json:"gamesWon"`
+	GamesLost        int                        `json:"gamesLost"`
+	QuickPlayStats   QuickPlayStatsCollection   `json:"quickPlayStats"`
+	CompetitiveStats CompetitiveStatsCollection `json:"competitiveStats"`
+	Private          bool                       `json:"private"`
 }
 
 type PlayerStatsProfile struct {
-    Icon             string                     `json:"icon"`
-    Name             string                     `json:"name"`
-    Endorsement      int                        `json:"endorsement"`
-    EndorsementIcon  string                     `json:"endorsementIcon"`
-    Title            string                     `json:"title"`
-    NamecardID       string                     `json:"namecardId,omitempty"`    
-    NamecardTitle    string                     `json:"namecardTitle,omitempty"` 
-    NamecardImage    string                     `json:"namecardImage"`
-    CompetitiveStats CompetitiveSummary         `json:"competitiveStats,omitempty"`
-    QuickplayStats   QuickplaySummary           `json:"quickplayStats,omitempty"`
-    Ratings          []Rating                   `json:"ratings"`
-    Private          bool                       `json:"private"`
+	Icon             string             `json:"icon"`
+	Name             string             `json:"name"`
+	Endorsement      int                `json:"endorsement"`
+	EndorsementIcon  string             `json:"endorsementIcon"`
+	Title            string             `json:"title"`
+	NamecardID       string             `json:"namecardId,omitempty"`
+	NamecardTitle    string             `json:"namecardTitle,omitempty"`
+	NamecardImage    string             `json:"namecardImage"`
+	CompetitiveStats CompetitiveSummary `json:"competitiveStats,omitempty"`
+	QuickplayStats   QuickplaySummary   `json:"quickplayStats,omitempty"`
+	Ratings          []Rating           `json:"ratings"`
+	Private          bool               `json:"private"`
 }
-
 
 type Rating struct {
 	Group    string `json:"group"`
@@ -47,20 +46,26 @@ type Rating struct {
 }
 
 type CompetitiveSummary struct {
-	Season 			*int 						`json:"season,omitempty"`
-	GamesPlayed      int       					`json:"gamesPlayed,omitempty"`
-	GamesWon         int        				`json:"gamesWon,omitempty"`
-	GamesLost        int        				`json:"gamesLost,omitempty"`
-	TimePlayed       string     				`json:"timePlayed,omitempty"`
-	MostPlayedHero	 string 					`json:"mostPlayedHero,omitempty"`
+	Season                      *int   `json:"season,omitempty"`
+	GamesPlayed                 int    `json:"gamesPlayed,omitempty"`
+	GamesWon                    int    `json:"gamesWon,omitempty"`
+	GamesLost                   int    `json:"gamesLost,omitempty"`
+	TimePlayed                  string `json:"timePlayed,omitempty"`
+	MostPlayedHero              string `json:"mostPlayedHero,omitempty"`
+	MostPlayedHeroTimePlayed    string `json:"mostPlayedHeroTimePlayed,omitempty"`
+	MostPlayedHeroGamesPlayed   int    `json:"mostPlayedHeroGamesPlayed,omitempty"`
+	MostPlayedHeroWinPercentage int    `json:"mostPlayedHeroWinPercentage,omitempty"`
 }
 
 type QuickplaySummary struct {
-	GamesPlayed      int       					`json:"gamesPlayed,omitempty"`
-	GamesWon         int        				`json:"gamesWon,omitempty"`
-	GamesLost        int        				`json:"gamesLost,omitempty"`
-	TimePlayed       string     				`json:"timePlayed,omitempty"`
-	MostPlayedHero	 string 					`json:"mostPlayedHero,omitempty"`
+	GamesPlayed                 int    `json:"gamesPlayed,omitempty"`
+	GamesWon                    int    `json:"gamesWon,omitempty"`
+	GamesLost                   int    `json:"gamesLost,omitempty"`
+	TimePlayed                  string `json:"timePlayed,omitempty"`
+	MostPlayedHero              string `json:"mostPlayedHero,omitempty"`
+	MostPlayedHeroTimePlayed    string `json:"mostPlayedHeroTimePlayed,omitempty"`
+	MostPlayedHeroGamesPlayed   int    `json:"mostPlayedHeroGamesPlayed,omitempty"`
+	MostPlayedHeroWinPercentage int    `json:"mostPlayedHeroWinPercentage,omitempty"`
 }
 
 type StatsCollection struct {
@@ -86,6 +91,14 @@ type TopHeroStats struct {
 	EliminationsPerLife float64 `json:"eliminationsPerLife"`
 	MultiKillBest       int     `json:"multiKillBest"`
 	ObjectiveKills      float64 `json:"objectiveKills"`
+	Valid               bool    `json:"-"` // Used to determine if the stats are valid
+	GamesPlayed         int     `json:"gamesPlayed"`
+	GamesLost           int     `json:"gamesLost"`
+	WinPercentage       int     `json:"winPercentage"`
+	ObjectiveKillsBest  int     `json:"objectiveKillsBest"`
+	HealingDoneBest     int     `json:"healingDoneBest"`
+	DamageDoneBest      int     `json:"damageDoneBest"`
+	KillStreakBest      int     `json:"killStreakBest"`
 }
 
 // CareerStats holds very detailed stats for each hero
@@ -120,7 +133,7 @@ type Platform struct {
 }
 
 type UnlockData struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`  
-	Icon  string `json:"icon"`  
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Icon string `json:"icon"`
 }

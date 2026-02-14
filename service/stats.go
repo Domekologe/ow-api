@@ -78,8 +78,14 @@ func statsComplete(c echo.Context) error {
 	// Log request
 	logRequest(platform, tag, clientIP)
 
+	// Determine timeout based on Redis availability
+	timeout := apiTimeout
+	if redisCache == nil {
+		timeout = 30 * time.Second
+	}
+
 	// Try live scraping first with timeout
-	stats, err := statsWithTimeout(platform, tag, apiTimeout)
+	stats, err := statsWithTimeout(platform, tag, timeout)
 
 	if err != nil {
 		// On timeout, try to use cache data as fallback
@@ -92,11 +98,14 @@ func statsComplete(c echo.Context) error {
 					triggerScraperUpdate(platform, tag)
 					return c.JSON(http.StatusOK, cachedStats)
 				}
+				logResponse(platform, tag, "Timeout - Sent to background scraper")
+				// Trigger scraper even without cache
+				triggerScraperUpdate(platform, tag)
+				return newErr(http.StatusGatewayTimeout, "Request timeout - Data will be scraped in background")
 			}
-			logResponse(platform, tag, "Timeout - Sent to background scraper")
-			// Trigger scraper even without cache
-			triggerScraperUpdate(platform, tag)
-			return newErr(http.StatusGatewayTimeout, "Request timeout - Data will be scraped in background")
+			// If Redis is not enabled, we can't background scrape, so just return timeout
+			logResponse(platform, tag, "Timeout - No cache available")
+			return newErr(http.StatusGatewayTimeout, "Request timeout")
 		}
 
 		// Handle other errors
@@ -141,8 +150,14 @@ func statsProfile(c echo.Context) error {
 	// Log request
 	logRequest(platform, tag, clientIP)
 
+	// Determine timeout based on Redis availability
+	timeout := apiTimeout
+	if redisCache == nil {
+		timeout = 30 * time.Second
+	}
+
 	// Try live scraping first with timeout
-	stats, err := profileStatsWithTimeout(platform, tag, apiTimeout)
+	stats, err := profileStatsWithTimeout(platform, tag, timeout)
 	if err != nil {
 		// On timeout, try to use cache data as fallback
 		if err.Error() == "request timeout" {
@@ -154,11 +169,14 @@ func statsProfile(c echo.Context) error {
 					triggerScraperUpdateProfile(platform, tag)
 					return c.JSON(http.StatusOK, cachedStats)
 				}
+				logResponse(platform, tag, "Timeout - Sent to background scraper (profile)")
+				// Trigger scraper even without cache
+				triggerScraperUpdateProfile(platform, tag)
+				return newErr(http.StatusGatewayTimeout, "Request timeout - Data will be scraped in background")
 			}
-			logResponse(platform, tag, "Timeout - Sent to background scraper (profile)")
-			// Trigger scraper even without cache
-			triggerScraperUpdateProfile(platform, tag)
-			return newErr(http.StatusGatewayTimeout, "Request timeout - Data will be scraped in background")
+			// If Redis is not enabled, we can't background scrape, so just return timeout
+			logResponse(platform, tag, "Timeout - No cache available")
+			return newErr(http.StatusGatewayTimeout, "Request timeout")
 		}
 
 		// Handle other errors

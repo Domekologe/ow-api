@@ -93,3 +93,63 @@ func adminCacheStats(c echo.Context) error {
 		"cache_keys":     keys,
 	})
 }
+
+// adminAddNews adds a new news item
+func adminAddNews(c echo.Context) error {
+	type addNewsRequest struct {
+		Content string   `json:"content"`
+		Type    NewsType `json:"type"`
+	}
+
+	req := new(addNewsRequest)
+	if err := c.Bind(req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request body",
+		})
+	}
+
+	if req.Content == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Content is required",
+		})
+	}
+
+	if req.Type == "" {
+		req.Type = NewsInfo
+	}
+
+	if newsService == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "News service not initialized",
+		})
+	}
+
+	item := newsService.AddNews(req.Content, req.Type)
+	return c.JSON(http.StatusOK, item)
+}
+
+// adminDeleteNews removes a news item
+func adminDeleteNews(c echo.Context) error {
+	id := c.Param("id")
+	if id == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "ID is required",
+		})
+	}
+
+	if newsService == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "News service not initialized",
+		})
+	}
+
+	if success := newsService.DeleteNews(id); success {
+		return c.JSON(http.StatusOK, map[string]string{
+			"message": "News item deleted",
+		})
+	}
+
+	return c.JSON(http.StatusNotFound, map[string]string{
+		"error": "News item not found",
+	})
+}

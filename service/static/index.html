@@ -1,112 +1,170 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <title>Ovrstat | OWAPI | Unofficial Overwatch Stats API</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OWAPI.EU | Overwatch API for Stats</title>
+    <meta name="description"
+        content="Overwatch API for Stats - Get player stats, profiles, and more in a simple JSON format.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css">
     <link rel="stylesheet" href="assets/ovrstat.css">
 </head>
 
 <body>
-    <div class="ui container padded">
-        <div class="ui equal width stackable grid">
-            <div class="column">
-                <a href="/"><img class="ui header-logo" src="assets/logo.png"></a>
-            </div>
-            <div class="right aligned column">
-                <a class="github-button" href="https://github.com/Domekologe/ow-api" data-size="large" data-show-count="true"
-                    aria-label="Star Domekologe/ow-api on GitHub">Star</a>
-            </div>
-        </div>
+    <div class="background-animation">
+        <div class="scanline"></div>
     </div>
-    <div class="ui container padded-bottom">
-        <div class="masthead"></div>
-    </div>
-    <div class="ui container padded">
-        <div class="ui centered grid">
-            <div class="ui yellow segment">
-                <form id="stats-form">
-                    <div class="ui action input">
-                        <div class="ui action input">
-                            <input id="tag" placeholder="Viz-1213" type="text">
-                        </div>
-                        <div class="ui compact selection dropdown" tabindex="0">
-                            <select id="platform">
-                                <option value="pc">PC</option>
-                                <option value="console">Console</option>
-                            </select>
-                            <i class="dropdown icon"></i>
-                            <div class="text">PC</div>
-                            <div class="menu" tabindex="-1">
-                                <div class="item active selected" data-value="pc">PC</div>
-                                <div class="item" data-value="console">Console</div>
-                            </div>
-                        </div>
-                        <div class="ui compact selection dropdown" tabindex="0">
-                            <select id="lookup">
-                                <option value="profile">Profile only</option>
-                                <option value="complete">Complete</option>
-                            </select>
-                            <i class="dropdown icon"></i>
-                            <div class="text">Profile only</div>
-                            <div class="menu" tabindex="-1">
-                                <div class="item active selected" data-value="profile">Profile only</div>
-                                <div class="item" data-value="complete">Complete</div>
-                            </div>
-                        </div>
-                        <button id="stats-button" class="ui basic button">Try it out!</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-    <div class="ui container padded-bottom">
-        <h1>
-            <i class="book icon"></i> API Usage</h1>
-        <p>
-            Overstat is an unofficial Overwatch Stats API written in Go. Accessing its main API endpoint is extremely
-            simple. Perform a <code>GET</code> request on the main lookup endpoint defined below.
-        </p>
-        <h3>For Profile only Stats</h3>
-        <div class="ui yellow segment">
-            <code>https://owapi.eu/stats/{platform}/{username}/profile</code>
-        </div>
-        <h3>For Complete Stats</h3>
-        <div class="ui yellow segment">
-            <code>https://owapi.eu/stats/{platform}/{username}/complete</code>
-        </div>
-        <h3>For API Documentation</h3>
-        <div class="ui yellow segment">
-            <a href="/docs"><code>https://owapi.eu/docs</code></a>
-        </div>
-    </div>
-    <div class="ui container padded-bottom">
-        <div class="ui grid middle aligned stackable">
-            <div class="nine wide column">
-                <h2>I <i class="red heart icon"></i> Overwatch</h2>
-            </div>
-            <div class="seven wide right aligned column">
-                <a class="tiny ui yellow button" href="https://github.com/Domekologe">
-                    <i class="terminal icon"></i> Github
+
+    <header class="site-header">
+        <div class="container">
+            <a href="/" class="logo">
+                <span class="logo-text">OWAPI</span>
+                <span class="logo-badge">v2</span>
+            </a>
+            <div class="header-actions">
+                <a href="https://github.com/Domekologe/ow-api" target="_blank" rel="noopener noreferrer"
+                    class="btn btn-icon" aria-label="Star on GitHub">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+                        </path>
+                    </svg>
+                    <span>Star</span>
+                    <span id="github-stars" class="badge-count"></span>
                 </a>
             </div>
         </div>
-    </div>
-    <div class="ui container padded-bottom">
-        This web site and all documentation is licensed under <a href="https://creativecommons.org/licenses/by/3.0/">Creative
-            Commons 3.0</a>.
-        <br />
-        <i class="copyright icon"></i>Copyright 2021-2023, <a href="https://github.com/s32x">s32x</a> and <a href="https://github.com/Domekologe">Domekologe (Github)</a> / <a href="https://www.domekologe.eu">Domekologe (Website)</a>. All Rights
-        Reserved
-    </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.3.1/semantic.min.js"></script>
-    <script src="https://buttons.github.io/buttons.js"></script>
+    </header>
+
+    <main class="site-main">
+        <div class="container">
+            <!-- News Section -->
+            <div id="news-container" class="news-list"></div>
+        </div>
+
+        <section class="hero-section">
+            <div class="container">
+                <h1 class="hero-title">Overwatch API for Stats</h1>
+                <p class="hero-subtitle">Simple, fast, and free JSON API for Overwatch player statistics.</p>
+
+                <div class="search-container glass-panel">
+                    <form id="stats-form" class="search-form">
+                        <div class="form-group input-group">
+                            <input type="text" id="tag" class="form-input" placeholder="BattleTag (e.g. Viz-1213)"
+                                required>
+
+                            <div class="select-wrapper">
+                                <select id="platform" class="form-select">
+                                    <option value="pc">PC</option>
+                                    <option value="console">Console</option>
+                                </select>
+                                <svg class="select-arrow" viewBox="0 0 24 24" width="16" height="16"
+                                    stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <div class="toggle-group">
+                                <input type="checkbox" id="complete-toggle" class="toggle-input">
+                                <label for="complete-toggle" class="toggle-label">
+                                    <span class="toggle-text">Profile Only</span>
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-text">Complete</span>
+                                </label>
+                            </div>
+                            <button type="submit" id="stats-button" class="btn btn-primary">
+                                <span>Try it out</span>
+                                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+                                    fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    <polyline points="12 5 19 12 12 19"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <section class="api-docs-section">
+            <div class="container">
+                <div class="grid-layout">
+                    <div class="card glass-panel">
+                        <div class="card-header">
+                            <div class="icon-box">
+                                <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2"
+                                    fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                </svg>
+                            </div>
+                            <h3>API Usage</h3>
+                        </div>
+                        <div class="card-body">
+                            <p>Access the API via simple GET requests. CORS is enabled for all origins.</p>
+
+                            <div class="endpoint-display">
+                                <span class="method">GET</span>
+                                <code
+                                    class="url">https://owapi.eu/stats/<span class="param">{platform}</span>/<span class="param">{battletag}</span>/profile</code>
+                            </div>
+                            <div class="endpoint-display">
+                                <span class="method">GET</span>
+                                <code
+                                    class="url">https://owapi.eu/stats/<span class="param">{platform}</span>/<span class="param">{battletag}</span>/complete</code>
+                            </div>
+
+                            <a href="/docs" class="btn btn-secondary full-width">View Full Documentation</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="logo-text-sm">OWAPI.EU</span>
+                    <p>Unofficial Overwatch API for Stats</p>
+                </div>
+                <div class="footer-links">
+                    <a href="https://github.com/Domekologe" target="_blank" rel="noopener noreferrer">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+                            </path>
+                        </svg>
+                        GitHub
+                    </a>
+                </div>
+            </div>
+            <div class="footer-legal">
+                <p>Data provided by Blizzard Entertainment. OWAPI is not affiliated with Blizzard Entertainment.</p>
+                <div class="copyright">
+                    &copy; 2021-2026 s32x & Domekologe. Licensed under <a
+                        href="https://creativecommons.org/licenses/by/3.0/" target="_blank">CC BY 3.0</a>.
+                </div>
+            </div>
+        </div>
+    </footer>
+
     <script src="assets/ovrstat.js"></script>
 </body>
 

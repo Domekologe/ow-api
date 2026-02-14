@@ -62,6 +62,13 @@ func Start(port string) {
 		log.Printf("Admin endpoints disabled (no password set)")
 	}
 
+	// Initialize News Service
+	if err := InitNewsService("news.json"); err != nil {
+		log.Printf("Warning: Failed to initialize news service: %v", err)
+	} else {
+		log.Printf("News service initialized")
+	}
+
 	e := Echo()
 	if !cfg.Logging.Debug {
 		// Disable Echo's default logger in production
@@ -114,6 +121,9 @@ func Echo() *echo.Echo {
 	e.GET("/stats/:platform/:tag/profile", statsProfile)
 	e.GET("/stats/:platform/:tag/complete", statsComplete)
 
+	// Handle news requests
+	e.GET("/news", listNews)
+
 	// Handle healthcheck requests
 	e.GET("/healthcheck", func(c echo.Context) error {
 		return c.NoContent(http.StatusOK)
@@ -124,6 +134,19 @@ func Echo() *echo.Echo {
 	admin.POST("/cache/flush", adminFlushCache)
 	admin.POST("/scraper/trigger", adminTriggerScraper)
 	admin.GET("/cache/stats", adminCacheStats)
+
+	// Admin News endpoints
+	admin.POST("/news", adminAddNews)
+	admin.DELETE("/news/:id", adminDeleteNews)
+
+	// Admin News Page (serve admin.html)
+	e.GET("/admin/news", func(c echo.Context) error {
+		data, err := staticFS.ReadFile("static/admin.html")
+		if err != nil {
+			return c.String(http.StatusNotFound, "Admin page not found")
+		}
+		return c.HTMLBlob(http.StatusOK, data)
+	})
 
 	return e
 }

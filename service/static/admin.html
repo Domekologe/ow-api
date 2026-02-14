@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - News Management | OWAPI.EU</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/ovrstat.css">
+    <style>
+        .admin-container {
+            max-width: 900px;
+            margin: 60px auto;
+            padding: 0 20px;
+        }
+
+        .admin-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .admin-header h1 {
+            font-size: 36px;
+            margin-bottom: 8px;
+        }
+
+        .admin-header p {
+            color: var(--text-secondary);
+        }
+
+        .admin-form-card {
+            margin-bottom: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+
+        .form-input,
+        .form-textarea,
+        .form-select {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            color: white;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: var(--transition);
+        }
+
+        .form-textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .form-input:focus,
+        .form-textarea:focus,
+        .form-select:focus {
+            border-color: var(--os-orange);
+            box-shadow: 0 0 0 2px rgba(249, 158, 26, 0.2);
+        }
+
+        .news-management {
+            margin-top: 60px;
+        }
+
+        .news-management h2 {
+            margin-bottom: 20px;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background: rgba(0, 195, 100, 0.1);
+            border: 1px solid rgba(0, 195, 100, 0.3);
+            color: #00ff88;
+        }
+
+        .alert-error {
+            background: rgba(255, 77, 77, 0.1);
+            border: 1px solid rgba(255, 77, 77, 0.3);
+            color: #ff4d4d;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="background-animation"></div>
+
+    <header class="site-header">
+        <div class="container">
+            <a href="/" class="logo">
+                <span class="logo-text">OWAPI</span>
+                <span class="logo-badge">v2</span>
+            </a>
+            <div class="header-actions">
+                <a href="/" class="btn btn-icon">
+                    <span>← Back to Home</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="site-main">
+        <div class="admin-container">
+            <div class="admin-header">
+                <h1>News Management</h1>
+                <p>Create and manage news announcements for the API</p>
+            </div>
+
+            <div id="alert-container"></div>
+
+            <div class="glass-panel admin-form-card">
+                <h2>Add News Item</h2>
+                <form id="admin-news-form">
+                    <div class="form-group">
+                        <label class="form-label" for="admin-password">Admin Password</label>
+                        <input type="password" id="admin-password" class="form-input" placeholder="Enter admin password"
+                            required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="news-content">News Content</label>
+                        <textarea id="news-content" class="form-textarea" placeholder="Enter news message..."
+                            required></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="news-type">Type</label>
+                        <select id="news-type" class="form-select">
+                            <option value="info">Info (Blue)</option>
+                            <option value="warning">Warning (Yellow)</option>
+                            <option value="critical">Critical (Red)</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary full-width">Add News</button>
+                </form>
+            </div>
+
+            <div class="news-management">
+                <h2>Current News Items</h2>
+                <div id="news-list" class="news-list"></div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="logo-text-sm">OWAPI.EU</span>
+                    <p>Unofficial Overwatch API for Stats</p>
+                </div>
+            </div>
+            <div class="footer-legal">
+                <p>Data provided by Blizzard Entertainment. OWAPI is not affiliated with Blizzard Entertainment.</p>
+                <div class="copyright">
+                    &copy; 2021-2026 s32x & Domekologe. Licensed under <a
+                        href="https://creativecommons.org/licenses/by/3.0/" target="_blank">CC BY 3.0</a>.
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const alertContainer = document.getElementById('alert-container');
+        const adminForm = document.getElementById('admin-news-form');
+        const newsList = document.getElementById('news-list');
+        const passwordInput = document.getElementById('admin-password');
+        const contentInput = document.getElementById('news-content');
+        const typeSelect = document.getElementById('news-type');
+
+        function showAlert(message, type = 'success') {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        function loadNews() {
+            fetch('/news')
+                .then(res => res.json())
+                .then(newsItems => {
+                    newsList.innerHTML = '';
+                    if (Array.isArray(newsItems) && newsItems.length > 0) {
+                        newsItems.forEach(item => {
+                            const newsEl = document.createElement('div');
+                            newsEl.className = `news-item ${item.type}`;
+                            newsEl.innerHTML = `
+                                <span class="news-content">${escapeHtml(item.content)}</span>
+                                <button class="news-delete-btn" data-id="${item.id}" title="Remove">×</button>
+                            `;
+                            newsList.appendChild(newsEl);
+                        });
+
+                        document.querySelectorAll('.news-delete-btn').forEach(btn => {
+                            btn.addEventListener('click', (e) => {
+                                const id = e.target.dataset.id;
+                                deleteNews(id);
+                            });
+                        });
+                    } else {
+                        newsList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No news items yet.</p>';
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to load news:', err);
+                    showAlert('Failed to load news items', 'error');
+                });
+        }
+
+        adminForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const password = passwordInput.value;
+            const content = contentInput.value;
+            const type = typeSelect.value;
+
+            fetch('/admin/news', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${password}`
+                },
+                body: JSON.stringify({ content, type })
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error('Authentication failed or invalid data');
+                    return res.json();
+                })
+                .then(() => {
+                    contentInput.value = '';
+                    showAlert('News item added successfully!', 'success');
+                    loadNews();
+                })
+                .catch(err => {
+                    console.error(err);
+                    showAlert('Failed to add news item. Check your password.', 'error');
+                });
+        });
+
+        function deleteNews(id) {
+            const password = passwordInput.value;
+            if (!password) {
+                showAlert('Please enter admin password first', 'error');
+                passwordInput.focus();
+                return;
+            }
+
+            if (!confirm('Delete this news item?')) return;
+
+            fetch(`/admin/news/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${password}`
+                }
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to delete');
+                    showAlert('News item deleted successfully!', 'success');
+                    loadNews();
+                })
+                .catch(err => {
+                    console.error(err);
+                    showAlert('Error deleting news item', 'error');
+                });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        loadNews();
+    </script>
+</body>
+
+</html>

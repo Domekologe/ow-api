@@ -3,7 +3,7 @@ package service
 import (
 	"encoding/json"
 	"net/http"
-	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/Domekologe/ow-api/ovrstat"
@@ -27,6 +27,11 @@ func InitSeasonResetsService(filePath string) error {
 	loaded, err := seasonmap.ReadResetsFile(filePath)
 	if err != nil {
 		return err
+	}
+	if len(loaded) == 0 && filepath.Clean(filePath) != filepath.Clean("season_resets.json") {
+		if legacy, _ := seasonmap.ReadResetsFile("season_resets.json"); len(legacy) > 0 {
+			loaded = legacy
+		}
 	}
 	s.resets = loaded
 	seasonResetsService = s
@@ -56,7 +61,7 @@ func (s *SeasonResetsService) saveUnlocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath, data, 0644)
+	return writeFileReplacing(s.filePath, data, 0644)
 }
 
 func applySeasonResetsIfConfigured(ps *ovrstat.PlayerStats) {

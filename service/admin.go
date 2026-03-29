@@ -124,7 +124,12 @@ func adminAddNews(c echo.Context) error {
 		})
 	}
 
-	item := newsService.AddNews(req.Content, req.Type)
+	item, err := newsService.AddNews(req.Content, req.Type)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to persist news: " + err.Error(),
+		})
+	}
 	return c.JSON(http.StatusOK, item)
 }
 
@@ -143,7 +148,13 @@ func adminDeleteNews(c echo.Context) error {
 		})
 	}
 
-	if success := newsService.DeleteNews(id); success {
+	ok, err := newsService.DeleteNews(id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to persist news: " + err.Error(),
+		})
+	}
+	if ok {
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "News item deleted",
 		})

@@ -60,8 +60,8 @@ type LoggingConfig struct {
 }
 
 // StorageConfig holds paths for files that must survive process restarts (news, season resets).
-// If DataDir is empty, files are stored in the process working directory (legacy: news.json, season_resets.json).
-// Set data_dir (or DATA_DIR) to a mounted volume in Docker so data survives container restarts.
+// DataDir defaults to "data" (under the process working directory). Override with storage.data_dir or DATA_DIR
+// (e.g. a Docker volume path).
 type StorageConfig struct {
 	DataDir string `yaml:"data_dir"`
 }
@@ -149,6 +149,10 @@ func Load() *Config {
 		cfg.Storage.DataDir = d
 	}
 
+	if strings.TrimSpace(cfg.Storage.DataDir) == "" {
+		cfg.Storage.DataDir = "data"
+	}
+
 	return cfg
 }
 
@@ -163,11 +167,7 @@ func (c *Config) SeasonResetsJSONPath() string {
 }
 
 func (c *Config) resolveDataFile(filename string) string {
-	dir := strings.TrimSpace(c.Storage.DataDir)
-	if dir == "" {
-		return filename
-	}
-	return filepath.Join(dir, filename)
+	return filepath.Join(strings.TrimSpace(c.Storage.DataDir), filename)
 }
 
 // GetCacheTTL parses and returns the cache TTL as a duration

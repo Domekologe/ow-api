@@ -47,9 +47,10 @@ test:
 	@echo "Running tests..."
 	go test ./...
 
-# Run API server locally
+# Run API server locally (writes news/season data under ./data unless DATA_DIR is set)
 run:
 	@echo "Starting API server..."
+	@mkdir -p data 2>/dev/null || mkdir data 2>nul || true
 	go run .
 
 # Run scraper locally

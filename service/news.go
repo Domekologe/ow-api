@@ -2,10 +2,11 @@ package service
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,16 +47,58 @@ func InitNewsService(filePath string) error {
 		items:    make([]NewsItem, 0),
 	}
 
-	// Load existing news if file exists
-	if _, err := os.Stat(filePath); err == nil {
-		data, err := os.ReadFile(filePath)
+	fillFromRootLegacy := false
+	data, err := os.ReadFile(filePath)
+	primaryExists := err == nil
+	if err != nil {
+		if os.IsNotExist(err) && filepath.Clean(filePath) != filepath.Clean("news.json") {
+			data, err = os.ReadFile("news.json")
+			if err == nil {
+				fillFromRootLegacy = true
+			}
+		}
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			newsService = ns
+			return nil
+		}
+		return err
+	}
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &ns.items); err != nil {
+			if filepath.Clean(filePath) == filepath.Clean("news.json") {
+				return err
+			}
+			legacy, err2 := os.ReadFile("news.json")
+			if err2 != nil || len(strings.TrimSpace(string(legacy))) == 0 {
+				return err
+			}
+			if err := json.Unmarshal(legacy, &ns.items); err != nil {
+				return err
+			}
+			fillFromRootLegacy = true
+		}
+	}
+	// Primary file existed but is an empty JSON list (common after switching to data/):
+	// load legacy ./news.json once and copy into data/news.json.
+	if len(ns.items) == 0 && primaryExists && filepath.Clean(filePath) != filepath.Clean("news.json") {
+		legacy, err := os.ReadFile("news.json")
+		if err == nil && len(strings.TrimSpace(string(legacy))) > 0 {
+			var legacyItems []NewsItem
+			if json.Unmarshal(legacy, &legacyItems) == nil && len(legacyItems) > 0 {
+				ns.items = legacyItems
+				fillFromRootLegacy = true
+			}
+		}
+	}
+	if fillFromRootLegacy && len(ns.items) > 0 && filepath.Clean(filePath) != filepath.Clean("news.json") {
+		b, err := json.MarshalIndent(ns.items, "", "  ")
 		if err != nil {
 			return err
 		}
-		if len(data) > 0 {
-			if err := json.Unmarshal(data, &ns.items); err != nil {
-				return err
-			}
+		if err := writeFileReplacing(filePath, b, 0644); err != nil {
+			return err
 		}
 	}
 
@@ -81,7 +124,7 @@ func (s *NewsService) GetNews() []NewsItem {
 }
 
 // AddNews adds a new news item
-func (s *NewsService) AddNews(content string, newsType NewsType) NewsItem {
+func (s *NewsService) AddNews(content string, newsType NewsType) (NewsItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -94,27 +137,30 @@ func (s *NewsService) AddNews(content string, newsType NewsType) NewsItem {
 
 	s.items = append(s.items, item)
 	if err := s.save(); err != nil {
-		log.Printf("Warning: failed to persist news to %s: %v", s.filePath, err)
+		s.items = s.items[:len(s.items)-1]
+		return NewsItem{}, err
 	}
-	return item
+	return item, nil
 }
 
 // DeleteNews removes a news item by ID
-func (s *NewsService) DeleteNews(id string) bool {
+func (s *NewsService) DeleteNews(id string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for i, item := range s.items {
-		if item.ID == id {
-			// Delete item
-			s.items = append(s.items[:i], s.items[i+1:]...)
-			if err := s.save(); err != nil {
-				log.Printf("Warning: failed to persist news to %s: %v", s.filePath, err)
-			}
-			return true
+		if item.ID != id {
+			continue
 		}
+		removed := item
+		s.items = append(s.items[:i], s.items[i+1:]...)
+		if err := s.save(); err != nil {
+			s.items = append(s.items[:i], append([]NewsItem{removed}, s.items[i:]...)...)
+			return false, err
+		}
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 // save persists news items to file
@@ -123,7 +169,7 @@ func (s *NewsService) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath, data, 0644)
+	return writeFileReplacing(s.filePath, data, 0644)
 }
 
 // listNews returns all active news

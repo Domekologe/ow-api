@@ -18,11 +18,14 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o scraper .
 # =============================== API IMAGE ===============================
 FROM alpine:3.19 AS api
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata && \
+    mkdir -p /var/lib/ow-api && chown nobody:nobody /var/lib/ow-api
 
 COPY --from=builder /src/api /usr/local/bin/api
 
 USER nobody
+WORKDIR /var/lib/ow-api
+ENV DATA_DIR=/var/lib/ow-api
 ENTRYPOINT ["/usr/local/bin/api"]
 
 # ============================= SCRAPER IMAGE =============================

@@ -8,5 +8,6 @@
 redis-data/
 config.yaml
 .env
+/data/
 *.exe~
 *.code-workspace

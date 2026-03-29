@@ -117,7 +117,13 @@ func Echo() *echo.Echo {
 	}
 	e.Use(middleware.Recover())
 	e.Pre(middleware.Secure())
-	e.Use(middleware.Gzip())
+	// Avoid compressing admin JSON (some clients mishandle tiny gzip bodies with fetch + JSON).
+	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
+		Level: 5,
+		Skipper: func(c echo.Context) bool {
+			return strings.HasPrefix(c.Request().URL.Path, "/admin")
+		},
+	}))
 	e.Use(middleware.CORS())
 
 	// Serve static content from /static and /docs

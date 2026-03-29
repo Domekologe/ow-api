@@ -202,11 +202,23 @@
                 .filter(n => Number.isFinite(n) && n > 0);
         }
 
+        function parseJSONFromResponse(res, text) {
+            if (text == null || !String(text).trim()) {
+                throw new Error('Empty response');
+            }
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                throw new Error('Invalid JSON from server');
+            }
+        }
+
         function fillFromServer() {
             fetch('/season-resets')
-                .then(res => {
-                    if (!res.ok) throw new Error('load failed');
-                    return res.json();
+                .then(async (res) => {
+                    const text = await res.text();
+                    if (!res.ok) throw new Error(text || 'load failed');
+                    return parseJSONFromResponse(res, text);
                 })
                 .then(data => {
                     const arr = Array.isArray(data.resets) ? data.resets : [];
@@ -235,9 +247,17 @@
                 },
                 body: JSON.stringify({ resets })
             })
-                .then(res => {
-                    if (!res.ok) throw new Error('save failed');
-                    return res.json();
+                .then(async (res) => {
+                    const text = await res.text();
+                    if (!res.ok) {
+                        let msg = 'Save failed';
+                        try {
+                            const j = JSON.parse(text);
+                            if (j && j.error) msg = j.error;
+                        } catch (_) { /* keep msg */ }
+                        throw new Error(msg);
+                    }
+                    return parseJSONFromResponse(res, text);
                 })
                 .then(data => {
                     const arr = Array.isArray(data.resets) ? data.resets : [];
@@ -246,7 +266,7 @@
                 })
                 .catch(err => {
                     console.error(err);
-                    showAlert('Save failed — check password', 'error');
+                    showAlert(err.message || 'Save failed', 'error');
                 });
         });
 

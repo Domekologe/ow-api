@@ -906,6 +906,15 @@ func parseHeroStats(heroStatsSelector *goquery.Selection) map[string]*TopHeroSta
 				bhsMap[heroName] = new(TopHeroStats)
 			}
 
+			if bhsMap[heroName].HeroPicture == "" {
+				if src, ok := statSel.Find("img.Profile-progressBar--icon").Attr("src"); ok {
+					src = strings.TrimSpace(src)
+					if src != "" {
+						bhsMap[heroName].HeroPicture = src
+					}
+				}
+			}
+
 			// Sets hero stats based on stat category type
 			switch categoryID {
 			case "timePlayed":

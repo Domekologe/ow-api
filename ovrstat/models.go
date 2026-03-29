@@ -86,6 +86,7 @@ type QuickPlayStatsCollection struct {
 
 // TopHeroStats holds basic stats for each hero
 type TopHeroStats struct {
+	HeroPicture         string  `json:"heroPicture,omitempty"`
 	TimePlayed          string  `json:"timePlayed"`
 	GamesWon            int     `json:"gamesWon"`
 	WeaponAccuracy      int     `json:"weaponAccuracy"`

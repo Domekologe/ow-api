@@ -96,6 +96,7 @@ func statsComplete(c echo.Context) error {
 					// Trigger background scraper to refresh
 					logResponse(platform, tag, "Timeout - Serving from cache, background scraper triggered")
 					triggerScraperUpdate(platform, tag)
+					applySeasonResetsIfConfigured(cachedStats)
 					return c.JSON(http.StatusOK, cachedStats)
 				}
 				logResponse(platform, tag, "Timeout - Sent to background scraper")
@@ -125,6 +126,7 @@ func statsComplete(c echo.Context) error {
 		if redisCache != nil {
 			redisCache.Set(platform, tag, stats)
 		}
+		applySeasonResetsIfConfigured(stats)
 		return c.JSON(http.StatusOK, stats)
 	}
 
@@ -139,6 +141,7 @@ func statsComplete(c echo.Context) error {
 		logResponse(platform, tag, "Player found")
 	}
 
+	applySeasonResetsIfConfigured(stats)
 	return c.JSON(http.StatusOK, stats)
 }
 
@@ -167,6 +170,7 @@ func statsProfile(c echo.Context) error {
 					// Trigger background scraper to refresh
 					logResponse(platform, tag, "Timeout - Serving from cache (profile), background scraper triggered")
 					triggerScraperUpdateProfile(platform, tag)
+					applySeasonResetsProfileIfConfigured(cachedStats)
 					return c.JSON(http.StatusOK, cachedStats)
 				}
 				logResponse(platform, tag, "Timeout - Sent to background scraper (profile)")
@@ -196,6 +200,7 @@ func statsProfile(c echo.Context) error {
 		if redisCache != nil {
 			redisCache.SetProfile(platform, tag, stats)
 		}
+		applySeasonResetsProfileIfConfigured(stats)
 		return c.JSON(http.StatusOK, stats)
 	}
 
@@ -210,5 +215,6 @@ func statsProfile(c echo.Context) error {
 		logResponse(platform, tag, "Player found (profile)")
 	}
 
+	applySeasonResetsProfileIfConfigured(stats)
 	return c.JSON(http.StatusOK, stats)
 }

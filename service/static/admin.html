@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - News Management | OWAPI.EU</title>
+    <title>Admin – News | OWAPI.EU</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -116,8 +116,11 @@
                 <span class="logo-badge">v2</span>
             </a>
             <div class="header-actions">
+                <a href="/admin/season-reset" class="btn btn-icon">
+                    <span>Season resets</span>
+                </a>
                 <a href="/" class="btn btn-icon">
-                    <span>← Back to Home</span>
+                    <span>← Home</span>
                 </a>
             </div>
         </div>
@@ -126,11 +129,15 @@
     <main class="site-main">
         <div class="admin-container">
             <div class="admin-header">
-                <h1>News Management</h1>
+                <h1>News</h1>
                 <p>Create and manage news announcements for the API</p>
             </div>
 
             <div id="alert-container"></div>
+
+            <p style="text-align: center; margin-bottom: 24px;">
+                <a href="/admin/season-reset" class="btn btn-primary">Season resets admin</a>
+            </p>
 
             <div class="glass-panel admin-form-card">
                 <h2>Add News Item</h2>

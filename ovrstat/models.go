@@ -47,6 +47,7 @@ type Rating struct {
 
 type CompetitiveSummary struct {
 	Season                      *int   `json:"season,omitempty"`
+	RealSeason                  *int   `json:"realSeason"`
 	GamesPlayed                 int    `json:"gamesPlayed,omitempty"`
 	GamesWon                    int    `json:"gamesWon,omitempty"`
 	GamesLost                   int    `json:"gamesLost,omitempty"`
@@ -74,7 +75,8 @@ type StatsCollection struct {
 }
 
 type CompetitiveStatsCollection struct {
-	Season *int `json:"season"`
+	Season     *int `json:"season"`
+	RealSeason *int `json:"realSeason"`
 	StatsCollection
 }
 

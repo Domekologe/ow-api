@@ -69,6 +69,12 @@ func Start(port string) {
 		log.Printf("News service initialized")
 	}
 
+	if err := InitSeasonResetsService("season_resets.json"); err != nil {
+		log.Printf("Warning: Failed to initialize season resets: %v", err)
+	} else {
+		log.Printf("Season resets service initialized")
+	}
+
 	e := Echo()
 	if !cfg.Logging.Debug {
 		// Disable Echo's default logger in production
@@ -123,6 +129,7 @@ func Echo() *echo.Echo {
 
 	// Handle news requests
 	e.GET("/news", listNews)
+	e.GET("/season-resets", listSeasonResets)
 
 	// Handle healthcheck requests
 	e.GET("/healthcheck", func(c echo.Context) error {
@@ -139,9 +146,19 @@ func Echo() *echo.Echo {
 	admin.POST("/news", adminAddNews)
 	admin.DELETE("/news/:id", adminDeleteNews)
 
+	admin.POST("/season-resets", adminSaveSeasonResets)
+
 	// Admin News Page (serve admin.html)
 	e.GET("/admin/news", func(c echo.Context) error {
 		data, err := staticFS.ReadFile("static/admin.html")
+		if err != nil {
+			return c.String(http.StatusNotFound, "Admin page not found")
+		}
+		return c.HTMLBlob(http.StatusOK, data)
+	})
+
+	e.GET("/admin/season-reset", func(c echo.Context) error {
+		data, err := staticFS.ReadFile("static/admin-season.html")
 		if err != nil {
 			return c.String(http.StatusNotFound, "Admin page not found")
 		}

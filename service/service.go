@@ -4,6 +4,8 @@ import (
 	"embed"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/Domekologe/ow-api/config"
 	"github.com/labstack/echo/v4"
@@ -62,14 +64,28 @@ func Start(port string) {
 		log.Printf("Admin endpoints disabled (no password set)")
 	}
 
-	// Initialize News Service
-	if err := InitNewsService("news.json"); err != nil {
+	if dir := strings.TrimSpace(cfg.Storage.DataDir); dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Printf("Warning: Could not create persistence directory %q: %v", dir, err)
+		}
+	}
+
+	newsPath := cfg.NewsJSONPath()
+	seasonPath := cfg.SeasonResetsJSONPath()
+	if ap, err := filepath.Abs(newsPath); err == nil {
+		log.Printf("News persistence file: %s", ap)
+	}
+	if ap, err := filepath.Abs(seasonPath); err == nil {
+		log.Printf("Season resets file: %s", ap)
+	}
+
+	if err := InitNewsService(newsPath); err != nil {
 		log.Printf("Warning: Failed to initialize news service: %v", err)
 	} else {
 		log.Printf("News service initialized")
 	}
 
-	if err := InitSeasonResetsService("season_resets.json"); err != nil {
+	if err := InitSeasonResetsService(seasonPath); err != nil {
 		log.Printf("Warning: Failed to initialize season resets: %v", err)
 	} else {
 		log.Printf("Season resets service initialized")

@@ -2,7 +2,7 @@ package service
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -48,7 +48,7 @@ func InitNewsService(filePath string) error {
 
 	// Load existing news if file exists
 	if _, err := os.Stat(filePath); err == nil {
-		data, err := ioutil.ReadFile(filePath)
+		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,9 @@ func (s *NewsService) AddNews(content string, newsType NewsType) NewsItem {
 	}
 
 	s.items = append(s.items, item)
-	s.save()
+	if err := s.save(); err != nil {
+		log.Printf("Warning: failed to persist news to %s: %v", s.filePath, err)
+	}
 	return item
 }
 
@@ -106,7 +108,9 @@ func (s *NewsService) DeleteNews(id string) bool {
 		if item.ID == id {
 			// Delete item
 			s.items = append(s.items[:i], s.items[i+1:]...)
-			s.save()
+			if err := s.save(); err != nil {
+				log.Printf("Warning: failed to persist news to %s: %v", s.filePath, err)
+			}
 			return true
 		}
 	}
@@ -119,7 +123,7 @@ func (s *NewsService) save() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(s.filePath, data, 0644)
+	return os.WriteFile(s.filePath, data, 0644)
 }
 
 // listNews returns all active news

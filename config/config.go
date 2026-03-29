@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,6 +20,7 @@ type Config struct {
 	Scraper ScraperConfig `yaml:"scraper"`
 	Admin   AdminConfig   `yaml:"admin"`
 	Logging LoggingConfig `yaml:"logging"`
+	Storage StorageConfig `yaml:"storage"`
 }
 
 // ServerConfig holds server-related configuration
@@ -54,6 +57,13 @@ type AdminConfig struct {
 // LoggingConfig holds logging configuration
 type LoggingConfig struct {
 	Debug bool `yaml:"debug"`
+}
+
+// StorageConfig holds paths for files that must survive process restarts (news, season resets).
+// If DataDir is empty, files are stored in the process working directory (legacy: news.json, season_resets.json).
+// Set data_dir (or DATA_DIR) to a mounted volume in Docker so data survives container restarts.
+type StorageConfig struct {
+	DataDir string `yaml:"data_dir"`
 }
 
 // Load loads configuration from file and environment variables
@@ -135,8 +145,29 @@ func Load() *Config {
 	if debug := os.Getenv("DEBUG"); debug != "" {
 		cfg.Logging.Debug = debug == "true"
 	}
+	if d := strings.TrimSpace(os.Getenv("DATA_DIR")); d != "" {
+		cfg.Storage.DataDir = d
+	}
 
 	return cfg
+}
+
+// NewsJSONPath returns the path to the persisted news file.
+func (c *Config) NewsJSONPath() string {
+	return c.resolveDataFile("news.json")
+}
+
+// SeasonResetsJSONPath returns the path to the season reset anchors file.
+func (c *Config) SeasonResetsJSONPath() string {
+	return c.resolveDataFile("season_resets.json")
+}
+
+func (c *Config) resolveDataFile(filename string) string {
+	dir := strings.TrimSpace(c.Storage.DataDir)
+	if dir == "" {
+		return filename
+	}
+	return filepath.Join(dir, filename)
 }
 
 // GetCacheTTL parses and returns the cache TTL as a duration

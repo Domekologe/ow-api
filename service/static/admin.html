@@ -251,13 +251,22 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${password}`
+                    'Authorization': `Bearer ${password.trim()}`
                 },
                 body: JSON.stringify({ content, type })
             })
-                .then(res => {
-                    if (!res.ok) throw new Error('Authentication failed or invalid data');
-                    return res.json();
+                .then(async (res) => {
+                    const text = await res.text();
+                    if (!res.ok) {
+                        let msg = `Request failed (${res.status})`;
+                        try {
+                            const j = JSON.parse(text);
+                            if (j && j.error) msg = j.error;
+                        } catch (_) { /* keep msg */ }
+                        throw new Error(msg);
+                    }
+                    if (!text || !text.trim()) return null;
+                    return JSON.parse(text);
                 })
                 .then(() => {
                     contentInput.value = '';
@@ -266,7 +275,7 @@
                 })
                 .catch(err => {
                     console.error(err);
-                    showAlert('Failed to add news item. Check your password.', 'error');
+                    showAlert(err.message || 'Failed to add news item', 'error');
                 });
         });
 
@@ -283,17 +292,25 @@
             fetch(`/admin/news/${id}`, {
                 method: 'DELETE',
                 headers: {
-                    'Authorization': `Bearer ${password}`
+                    'Authorization': `Bearer ${password.trim()}`
                 }
             })
-                .then(res => {
-                    if (!res.ok) throw new Error('Failed to delete');
+                .then(async (res) => {
+                    const text = await res.text();
+                    if (!res.ok) {
+                        let msg = `Delete failed (${res.status})`;
+                        try {
+                            const j = JSON.parse(text);
+                            if (j && j.error) msg = j.error;
+                        } catch (_) { }
+                        throw new Error(msg);
+                    }
                     showAlert('News item deleted successfully!', 'success');
                     loadNews();
                 })
                 .catch(err => {
                     console.error(err);
-                    showAlert('Error deleting news item', 'error');
+                    showAlert(err.message || 'Error deleting news item', 'error');
                 });
         }
 

@@ -68,8 +68,7 @@ type StorageConfig struct {
 
 // Load loads configuration from file and environment variables
 func Load() *Config {
-	// Load .env file if it exists (silently ignore if not found)
-	_ = godotenv.Load()
+	loadDotEnv()
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -153,7 +152,21 @@ func Load() *Config {
 		cfg.Storage.DataDir = "data"
 	}
 
+	cfg.Admin.Password = strings.TrimSpace(cfg.Admin.Password)
+
 	return cfg
+}
+
+// loadDotEnv loads .env from the working directory, then from the directory of the
+// executable if ADMIN_PASSWORD is still empty (common when running a built binary outside the repo root).
+func loadDotEnv() {
+	_ = godotenv.Load(".env")
+	if strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")) != "" {
+		return
+	}
+	if exe, err := os.Executable(); err == nil {
+		_ = godotenv.Load(filepath.Join(filepath.Dir(exe), ".env"))
+	}
 }
 
 // NewsJSONPath returns the path to the persisted news file.

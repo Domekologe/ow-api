@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -17,11 +18,14 @@ func adminAuth(next echo.HandlerFunc) echo.HandlerFunc {
 			})
 		}
 
-		// Check Authorization header
-		auth := c.Request().Header.Get("Authorization")
-		expectedAuth := "Bearer " + adminPassword
-
-		if auth != expectedAuth {
+		// Check Authorization header (trim token — avoids mismatch from .env CRLF or pasted spaces)
+		const prefix = "Bearer "
+		auth := strings.TrimSpace(c.Request().Header.Get("Authorization"))
+		token := ""
+		if strings.HasPrefix(auth, prefix) {
+			token = strings.TrimSpace(auth[len(prefix):])
+		}
+		if token != adminPassword {
 			return c.JSON(http.StatusUnauthorized, map[string]string{
 				"error": "Invalid admin password",
 			})

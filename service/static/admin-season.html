@@ -243,7 +243,7 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${password}`
+                    'Authorization': `Bearer ${password.trim()}`
                 },
                 body: JSON.stringify({ resets })
             })

@@ -365,7 +365,11 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
 		id, _ := sel.Attr("id")
 
-		id = filterRegexp.FindStringSubmatch(id)[1]
+		idMatch := filterRegexp.FindStringSubmatch(id)
+		if idMatch == nil {
+			return
+		}
+		id = idMatch[1]
 
 		viewID := "." + id + "-view"
 
@@ -495,7 +499,11 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
 		id, _ := sel.Attr("id")
 
-		id = filterRegexp.FindStringSubmatch(id)[1]
+		idMatch := filterRegexp.FindStringSubmatch(id)
+		if idMatch == nil {
+			return
+		}
+		id = idMatch[1]
 
 		viewID := "." + id + "-view"
 
@@ -645,11 +653,25 @@ func retrievePlayers(tag string) ([]Player, error) {
 }
 
 var (
-	endorsementRegexp = regexp.MustCompile("/(\\d+)-([a-z0-9]+)\\.svg")
+	endorsementRegexp = regexp.MustCompile("/(\\d+)[.-]([a-z0-9]+)\\.svg")
 	rankRegexp        = regexp.MustCompile(`https://\S+Rank_([a-zA-Z]+)Tier-([a-f0-9]+)\.png`)
 	tierRegexp        = regexp.MustCompile(`https://\S+TierDivision_(\d+)-[a-f0-9]+\.png`)
 	filterRegexp      = regexp.MustCompile("^([a-zA-Z]+)Filter$")
 )
+
+// roleFromIcon extracts the role name from a role icon path of the form
+// /(offense|support|tank)-HEX.svg (or .-separated). Returns "" if the role
+// can't be determined, so a changed/empty icon format does not panic.
+func roleFromIcon(roleIcon string) string {
+	if roleIcon == "" {
+		return ""
+	}
+	role := path.Base(roleIcon)
+	if i := strings.IndexAny(role, ".-"); i > 0 {
+		return role[:i]
+	}
+	return ""
+}
 
 // populateGeneralInfo extracts the users general info and returns it in a
 // PlayerStats struct
@@ -658,7 +680,9 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 	// Populates all general player information
 	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
-	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
+	if m := endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon); m != nil {
+		ps.Endorsement, _ = strconv.Atoi(m[1])
+	}
 	ps.Title = s.Find(".Profile-player--title").Text()
 
 	// Try to get Namecard
@@ -687,11 +711,19 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 	platform.RankWrapper.Find(".Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
 		// Rank selections.
 
-		var roleIconElement = sel.Find(".Profile-playerSummary--role").Nodes[0]
+		roleSel := sel.Find(".Profile-playerSummary--role")
+		if len(roleSel.Nodes) == 0 {
+			return
+		}
+		roleIconElement := roleSel.Nodes[0]
 
 		var roleIcon string
 		if roleIconElement.Data == "div" {
-			roleIconElement = sel.Find(".Profile-playerSummary--role img").Nodes[0]
+			imgSel := sel.Find(".Profile-playerSummary--role img")
+			if len(imgSel.Nodes) == 0 {
+				return
+			}
+			roleIconElement = imgSel.Nodes[0]
 
 			for _, attr := range roleIconElement.Attr {
 				if attr.Key == "src" {
@@ -700,7 +732,11 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 				}
 			}
 		} else if roleIconElement.Namespace == "svg" {
-			roleIconElement = sel.Find(".Profile-playerSummary--role use").Nodes[0]
+			useSel := sel.Find(".Profile-playerSummary--role use")
+			if len(useSel.Nodes) == 0 {
+				return
+			}
+			roleIconElement = useSel.Nodes[0]
 			for _, attr := range roleIconElement.Attr {
 				if attr.Key == "href" {
 					roleIcon = attr.Val
@@ -710,12 +746,14 @@ func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) 
 		}
 
 		// Format is /(offense|support|tank)-HEX.svg
-		role := path.Base(roleIcon)
-		role = role[0:strings.Index(role, "-")]
+		role := roleFromIcon(roleIcon)
 		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
 		tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
 		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
 		tierInfo := tierRegexp.FindStringSubmatch(tierIcon)
+		if rankInfo == nil || tierInfo == nil {
+			return
+		}
 		tier, _ := strconv.Atoi(tierInfo[1])
 
 		ps.Ratings = append(ps.Ratings, Rating{
@@ -733,7 +771,9 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 	// Populates all general player information
 	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
-	ps.Endorsement, _ = strconv.Atoi(endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon)[1])
+	if m := endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon); m != nil {
+		ps.Endorsement, _ = strconv.Atoi(m[1])
+	}
 	ps.Title = s.Find(".Profile-player--title").Text()
 
 	// Try to get Namecard
@@ -765,12 +805,14 @@ func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *Player
 		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
 
 		// Format is /(offense|support|...)-HEX.svg
-		role := path.Base(roleIcon)
-		role = role[0:strings.Index(role, "-")]
+		role := roleFromIcon(roleIcon)
 		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
 		tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
 		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
 		tierInfo := tierRegexp.FindStringSubmatch(tierIcon)
+		if rankInfo == nil || tierInfo == nil {
+			return
+		}
 		tier, _ := strconv.Atoi(tierInfo[1])
 
 		ps.Ratings = append(ps.Ratings, Rating{

@@ -24,6 +24,15 @@ func statsWithTimeout(platform, tag string, timeout time.Duration) (*ovrstat.Pla
 	errChan := make(chan error, 1)
 
 	go func() {
+		// Recover from any panic in the scraper so a single malformed
+		// profile (e.g. a Blizzard HTML format change) returns an error
+		// instead of crashing the whole process.
+		defer func() {
+			if r := recover(); r != nil {
+				errChan <- errors.Errorf("panic during stats scrape: %v", r)
+			}
+		}()
+
 		stats, err := ovrstat.Stats(platform, tag)
 		if err != nil {
 			errChan <- err
@@ -51,6 +60,15 @@ func profileStatsWithTimeout(platform, tag string, timeout time.Duration) (*ovrs
 	errChan := make(chan error, 1)
 
 	go func() {
+		// Recover from any panic in the scraper so a single malformed
+		// profile (e.g. a Blizzard HTML format change) returns an error
+		// instead of crashing the whole process.
+		defer func() {
+			if r := recover(); r != nil {
+				errChan <- errors.Errorf("panic during profile stats scrape: %v", r)
+			}
+		}()
+
 		stats, err := ovrstat.ProfileStats(platform, tag)
 		if err != nil {
 			errChan <- err

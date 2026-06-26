@@ -418,16 +418,16 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 
 func addGameStats(ps *PlayerStats, statsCollection *StatsCollection) {
 	if heroStats, ok := statsCollection.CareerStats["allHeroes"]; ok {
-		if gamesPlayed, ok := heroStats.Game["gamesPlayed"]; ok {
-			ps.GamesPlayed += gamesPlayed.(int)
+		if gamesPlayed, ok := heroStats.Game["gamesPlayed"].(int); ok {
+			ps.GamesPlayed += gamesPlayed
 		}
 
-		if gamesWon, ok := heroStats.Game["gamesWon"]; ok {
-			ps.GamesWon += gamesWon.(int)
+		if gamesWon, ok := heroStats.Game["gamesWon"].(int); ok {
+			ps.GamesWon += gamesWon
 		}
 
-		if gamesLost, ok := heroStats.Game["gamesLost"]; ok {
-			ps.GamesLost += gamesLost.(int)
+		if gamesLost, ok := heroStats.Game["gamesLost"].(int); ok {
+			ps.GamesLost += gamesLost
 		}
 	}
 }
@@ -535,17 +535,17 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	careerStats := parseCareerStats(platform.ProfileView.Find(".stats.competitive-view"))
 
 	if heroStats, ok := careerStats["allHeroes"]; ok {
-		if gamesPlayed, ok := heroStats.Game["gamesPlayed"]; ok {
-			ps.CompetitiveStats.GamesPlayed = gamesPlayed.(int)
+		if gamesPlayed, ok := heroStats.Game["gamesPlayed"].(int); ok {
+			ps.CompetitiveStats.GamesPlayed = gamesPlayed
 		}
-		if gamesWon, ok := heroStats.Game["gamesWon"]; ok {
-			ps.CompetitiveStats.GamesWon = gamesWon.(int)
+		if gamesWon, ok := heroStats.Game["gamesWon"].(int); ok {
+			ps.CompetitiveStats.GamesWon = gamesWon
 		}
-		if gamesLost, ok := heroStats.Game["gamesLost"]; ok {
-			ps.CompetitiveStats.GamesLost = gamesLost.(int)
+		if gamesLost, ok := heroStats.Game["gamesLost"].(int); ok {
+			ps.CompetitiveStats.GamesLost = gamesLost
 		}
-		if timePlayed, ok := heroStats.Game["timePlayed"]; ok {
-			ps.CompetitiveStats.TimePlayed = timePlayed.(string)
+		if timePlayed, ok := heroStats.Game["timePlayed"].(string); ok {
+			ps.CompetitiveStats.TimePlayed = timePlayed
 		}
 	}
 	careerStatsQP := parseCareerStats(platform.ProfileView.Find(".stats.quickPlay-view"))
@@ -556,17 +556,17 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 	}
 
 	if heroStats, ok := careerStatsQP["allHeroes"]; ok {
-		if gamesPlayed, ok := heroStats.Game["gamesPlayed"]; ok {
-			ps.QuickplayStats.GamesPlayed = gamesPlayed.(int)
+		if gamesPlayed, ok := heroStats.Game["gamesPlayed"].(int); ok {
+			ps.QuickplayStats.GamesPlayed = gamesPlayed
 		}
-		if gamesWon, ok := heroStats.Game["gamesWon"]; ok {
-			ps.QuickplayStats.GamesWon = gamesWon.(int)
+		if gamesWon, ok := heroStats.Game["gamesWon"].(int); ok {
+			ps.QuickplayStats.GamesWon = gamesWon
 		}
-		if gamesLost, ok := heroStats.Game["gamesLost"]; ok {
-			ps.QuickplayStats.GamesLost = gamesLost.(int)
+		if gamesLost, ok := heroStats.Game["gamesLost"].(int); ok {
+			ps.QuickplayStats.GamesLost = gamesLost
 		}
-		if timePlayed, ok := heroStats.Game["timePlayed"]; ok {
-			ps.QuickplayStats.TimePlayed = timePlayed.(string)
+		if timePlayed, ok := heroStats.Game["timePlayed"].(string); ok {
+			ps.QuickplayStats.TimePlayed = timePlayed
 		}
 	}
 
@@ -654,8 +654,8 @@ func retrievePlayers(tag string) ([]Player, error) {
 
 var (
 	endorsementRegexp = regexp.MustCompile("/(\\d+)[.-]([a-z0-9]+)\\.svg")
-	rankRegexp        = regexp.MustCompile(`https://\S+Rank_([a-zA-Z]+)Tier-([a-f0-9]+)\.png`)
-	tierRegexp        = regexp.MustCompile(`https://\S+TierDivision_(\d+)-[a-f0-9]+\.png`)
+	rankRegexp        = regexp.MustCompile(`https://\S+Rank_([a-zA-Z]+)Tier[.-]([a-f0-9]+)\.png`)
+	tierRegexp        = regexp.MustCompile(`https://\S+TierDivision_(\d+)[.-][a-f0-9]+\.png`)
 	filterRegexp      = regexp.MustCompile("^([a-zA-Z]+)Filter$")
 )
 

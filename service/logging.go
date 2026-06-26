@@ -30,6 +30,13 @@ func triggerScraperUpdate(platform, tag string) {
 	}
 
 	go func() {
+		// Recover from any panic so a malformed profile doesn't crash the process.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Background scraper panic for %s/%s: %v", platform, tag, r)
+			}
+		}()
+
 		// Fetch fresh stats in background
 		stats, err := ovrstat.Stats(platform, tag)
 		if err != nil {
@@ -54,6 +61,13 @@ func triggerScraperUpdateProfile(platform, tag string) {
 	}
 
 	go func() {
+		// Recover from any panic so a malformed profile doesn't crash the process.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Background scraper (profile) panic for %s/%s: %v", platform, tag, r)
+			}
+		}()
+
 		// Fetch fresh profile stats in background
 		stats, err := ovrstat.ProfileStats(platform, tag)
 		if err != nil {

@@ -6,36 +6,90 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: read
+
 jobs:
+  # Static analysis and tests run once on Linux. There is no point paying for a
+  # Windows runner to tell us the same thing.
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race -count=1 ./...
+
+  vulncheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
   build:
+    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
+          cache: true
 
-      - name: Build owapi on Linux
+      - name: Build API and scraper (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           mkdir -p build
-          go build -o build/owapi .
+          go build -ldflags="-s -w" -o build/owapi .
+          go build -ldflags="-s -w" -o build/owapi-scraper ./cmd/scraper
 
-      - name: Build owapi on Windows
+      - name: Build API and scraper (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          mkdir build
-          go build -o build/owapi.exe .
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          go build -ldflags="-s -w" -o build/owapi.exe .
+          go build -ldflags="-s -w" -o build/owapi-scraper.exe ./cmd/scraper
 
-      - name: Upload Binary
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: owapi-${{ runner.os }}

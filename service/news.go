@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +22,19 @@ const (
 	NewsWarning  NewsType = "warning"
 	NewsCritical NewsType = "critical"
 )
+
+// maxNewsItems bounds how many news items are retained. The oldest items are
+// dropped once the limit is exceeded, so the persisted file stays bounded.
+const maxNewsItems = 200
+
+// Valid reports whether the news type is one of the known severities.
+func (t NewsType) Valid() bool {
+	switch t {
+	case NewsInfo, NewsWarning, NewsCritical:
+		return true
+	}
+	return false
+}
 
 // NewsItem represents a single news update
 type NewsItem struct {
@@ -106,24 +119,22 @@ func InitNewsService(filePath string) error {
 	return nil
 }
 
-// GetNews returns all news items sorted by timestamp (newest first)
+// GetNews returns all news items sorted by timestamp (newest first).
 func (s *NewsService) GetNews() []NewsItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Return a copy to avoid race conditions
-	result := make([]NewsItem, len(s.items))
-	copy(result, s.items)
+	// Return a copy so callers cannot mutate the shared slice.
+	result := slices.Clone(s.items)
 
-	// Sort by timestamp descending
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Timestamp.After(result[j].Timestamp)
+	slices.SortFunc(result, func(a, b NewsItem) int {
+		return b.Timestamp.Compare(a.Timestamp)
 	})
 
 	return result
 }
 
-// AddNews adds a new news item
+// AddNews adds a new news item, trimming the oldest entries past maxNewsItems.
 func (s *NewsService) AddNews(content string, newsType NewsType) (NewsItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -135,32 +146,42 @@ func (s *NewsService) AddNews(content string, newsType NewsType) (NewsItem, erro
 		Timestamp: time.Now(),
 	}
 
+	// Keep a snapshot so the in-memory state can be restored if the write fails.
+	previous := slices.Clone(s.items)
+
 	s.items = append(s.items, item)
+	if len(s.items) > maxNewsItems {
+		slices.SortFunc(s.items, func(a, b NewsItem) int {
+			return a.Timestamp.Compare(b.Timestamp)
+		})
+		s.items = s.items[len(s.items)-maxNewsItems:]
+	}
+
 	if err := s.save(); err != nil {
-		s.items = s.items[:len(s.items)-1]
+		s.items = previous
 		return NewsItem{}, err
 	}
 	return item, nil
 }
 
-// DeleteNews removes a news item by ID
+// DeleteNews removes a news item by ID.
 func (s *NewsService) DeleteNews(id string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for i, item := range s.items {
-		if item.ID != id {
-			continue
-		}
-		removed := item
-		s.items = append(s.items[:i], s.items[i+1:]...)
-		if err := s.save(); err != nil {
-			s.items = append(s.items[:i], append([]NewsItem{removed}, s.items[i:]...)...)
-			return false, err
-		}
-		return true, nil
+	i := slices.IndexFunc(s.items, func(item NewsItem) bool { return item.ID == id })
+	if i < 0 {
+		return false, nil
 	}
-	return false, nil
+
+	previous := slices.Clone(s.items)
+	s.items = slices.Delete(s.items, i, i+1)
+
+	if err := s.save(); err != nil {
+		s.items = previous
+		return false, err
+	}
+	return true, nil
 }
 
 // save persists news items to file

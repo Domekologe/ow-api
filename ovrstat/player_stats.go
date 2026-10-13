@@ -1,9 +1,12 @@
 package ovrstat
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -11,56 +14,171 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/pkg/errors"
+	"golang.org/x/net/html"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const (
-	baseURL = "https://overwatch.blizzard.com/en-us/career"
+	baseHost = "https://overwatch.blizzard.com"
+
+	baseURL = baseHost + "/en-us/career"
 
 	// API URL Use '#' as A Delimiter between Number and Name and not '-'
-	apiURL = "https://overwatch.blizzard.com/en-us/search/account-by-name/"
+	apiURL = baseHost + "/en-us/search/account-by-name/"
+
+	// searchURL is fetched once to obtain the session cookies Blizzard expects.
+	searchURL = baseHost + "/en-us/search/"
+
+	// unlocksURL resolves namecard/unlock metadata.
+	unlocksURL = baseHost + "/en-us/search/unlocks/"
 
 	// PlatformPC is a platform for PCs (mouseKeyboard in the page)
 	PlatformPC = "pc"
 
 	// PlatformConsole is a consolidated platform of all consoles
 	PlatformConsole = "console"
+
+	// maxCareerRedirects bounds the redirect chain followed when resolving a career ID.
+	maxCareerRedirects = 5
+
+	// upstreamTimeout bounds a single upstream HTTP request.
+	upstreamTimeout = 15 * time.Second
+
+	// sessionTTL is how long a primed session is reused before being refreshed.
+	sessionTTL = 30 * time.Minute
+
+	// maxResponseBytes bounds how much of an upstream response we are willing to
+	// read, so a hostile or broken upstream cannot exhaust memory.
+	maxResponseBytes = 16 << 20 // 16 MiB
 )
 
 var (
-	// ErrPlayerNotFound is thrown when a player doesn't exist
-	ErrPlayerNotFound = errors.New("Player not found! No Players Found!")
+	// ErrPlayerNotFound is returned when a player doesn't exist.
+	ErrPlayerNotFound = errors.New("player not found")
 
-	// ErrInvalidPlatform is thrown when the passed params are incorrect
-	ErrInvalidPlatform = errors.New("Invalid platform")
+	// ErrInvalidPlatform is returned when the requested platform has no profile view.
+	ErrInvalidPlatform = errors.New("invalid platform")
 
-	owClient *http.Client
-	// Debug enables debug logging (set to false by default)
+	// ErrUnexpectedMarkup is returned when the upstream page no longer matches the
+	// structure this scraper expects. It signals that the scraper needs updating
+	// rather than that the caller did something wrong.
+	ErrUnexpectedMarkup = errors.New("unexpected upstream markup")
+
+	// Debug enables verbose debug logging.
 	Debug = false
 )
 
+// owClientOnce guards lazy construction of the shared HTTP client. The client is
+// deliberately process-wide so connections and the cookie jar are reused.
+var (
+	owClientOnce sync.Once
+	owClient     *http.Client
+
+	// redirectClient shares the transport but never follows redirects, because
+	// resolveCareerID needs to inspect Location headers itself.
+	redirectClientOnce sync.Once
+	redirectClient     *http.Client
+
+	sharedTransport = &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+		ForceAttemptHTTP2:   true,
+	}
+)
+
 func getOWClient() *http.Client {
-	if owClient != nil {
-		return owClient
-	}
-	jar, _ := cookiejar.New(nil)
-	owClient = &http.Client{
-		Timeout: 15 * time.Second,
-		Jar:     jar,
-	}
-	if Debug {
-		fmt.Println("[DEBUG] http.Client initialisiert mit CookieJar")
-	}
+	owClientOnce.Do(func() {
+		jar, _ := cookiejar.New(nil)
+		owClient = &http.Client{
+			Timeout:   upstreamTimeout,
+			Jar:       jar,
+			Transport: sharedTransport,
+		}
+		debugf("http.Client initialised with cookie jar")
+	})
 	return owClient
 }
 
-func primeOWSession(c *http.Client) error {
-	url := "https://overwatch.blizzard.com/en-us/search/"
-	req, err := http.NewRequest("GET", url, nil)
+func getRedirectClient() *http.Client {
+	redirectClientOnce.Do(func() {
+		jar, _ := cookiejar.New(nil)
+		redirectClient = &http.Client{
+			Timeout:   upstreamTimeout,
+			Jar:       jar,
+			Transport: sharedTransport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+	})
+	return redirectClient
+}
+
+// debugf logs only when Debug is enabled.
+func debugf(format string, args ...any) {
+	if Debug {
+		slog.Debug("ovrstat: " + fmt.Sprintf(format, args...))
+	}
+}
+
+// submatch returns capture group n of the first match, or "" plus false if the
+// pattern did not match. It replaces direct indexing of FindStringSubmatch,
+// which panics as soon as the upstream markup changes.
+func submatch(re *regexp.Regexp, s string, n int) (string, bool) {
+	m := re.FindStringSubmatch(s)
+	if len(m) <= n {
+		return "", false
+	}
+	return m[n], true
+}
+
+// firstNode returns the first node of a selection, or nil when the selection is empty.
+func firstNode(sel *goquery.Selection) *html.Node {
+	if len(sel.Nodes) == 0 {
+		return nil
+	}
+	return sel.Nodes[0]
+}
+
+// sessionState tracks when the shared cookie jar was last primed, so we do not
+// pay an extra round trip on every single upstream call.
+var sessionState struct {
+	mu       sync.Mutex
+	primedAt time.Time
+}
+
+// ensureOWSession primes the shared session at most once per sessionTTL.
+func ensureOWSession(ctx context.Context, c *http.Client) error {
+	sessionState.mu.Lock()
+	defer sessionState.mu.Unlock()
+
+	if !sessionState.primedAt.IsZero() && time.Since(sessionState.primedAt) < sessionTTL {
+		return nil
+	}
+	if err := primeOWSession(ctx, c); err != nil {
+		return err
+	}
+	sessionState.primedAt = time.Now()
+	return nil
+}
+
+// invalidateOWSession forces the next ensureOWSession call to re-prime.
+func invalidateOWSession() {
+	sessionState.mu.Lock()
+	sessionState.primedAt = time.Time{}
+	sessionState.mu.Unlock()
+}
+
+func primeOWSession(ctx context.Context, c *http.Client) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
 	if err != nil {
 		return fmt.Errorf("prime build request: %w", err)
 	}
@@ -68,10 +186,7 @@ func primeOWSession(c *http.Client) error {
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	if Debug {
-		fmt.Println("[DEBUG] Prime Request URL:", url)
-		fmt.Println("[DEBUG] Prime Request Headers:", req.Header)
-	}
+	debugf("prime request url=%s", searchURL)
 
 	resp, err := c.Do(req)
 	if err != nil {
@@ -79,11 +194,10 @@ func primeOWSession(c *http.Client) error {
 	}
 	defer resp.Body.Close()
 
-	if Debug {
-		fmt.Printf("[DEBUG] Prime Response Status: %d %s\n", resp.StatusCode, resp.Status)
-	}
+	debugf("prime response status=%d", resp.StatusCode)
 
-	io.Copy(io.Discard, resp.Body)
+	// Drain the body so the connection can be reused, but bound how much we read.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBytes))
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("prime session failed: %d %s", resp.StatusCode, resp.Status)
@@ -101,59 +215,57 @@ func splitTag(tag string) (name string, full string) {
 	return
 }
 
-func resolvePlayerByDoubleSearch(tag string) (*Player, error) {
-	// 1️⃣ Existenz über Career-Redirect prüfen
-	_, err := resolveCareerID(tag)
-	if err != nil {
-		return nil, ErrPlayerNotFound
+func resolvePlayerByDoubleSearch(ctx context.Context, tag string) (*Player, error) {
+	// 1. Verify the player exists via the career redirect.
+	if _, err := resolveCareerID(ctx, tag); err != nil {
+		// Pass the error through: only a real miss may surface as ErrPlayerNotFound.
+		return nil, err
 	}
 
-	// 2️⃣ Name extrahieren
+	// 2. Extract the plain name.
 	name, full := splitTag(tag)
 
-	// 3️⃣ Search nur noch als Metadatenquelle
-	playersByName, _ := retrievePlayers(name)
-	playersByFull, _ := retrievePlayers(full)
+	// 3. The search endpoint is only used as a metadata source from here on.
+	playersByName, _ := retrievePlayers(ctx, name)
+	playersByFull, _ := retrievePlayers(ctx, full)
 
-	// 4️⃣ Wenn Full-Search was liefert → nehmen
+	// 4. Prefer an exact full-tag hit.
 	if len(playersByFull) > 0 {
 		return &playersByFull[0], nil
 	}
 
-	// 5️⃣ Fallback: Name-Search (einziger Treffer)
+	// 5. Fall back to a name search that yielded exactly one candidate.
 	if len(playersByName) == 1 {
 		return &playersByName[0], nil
 	}
 
-	// 6️⃣ Existiert zwar, aber nicht eindeutig auffindbar
+	// 6. The player exists but could not be identified unambiguously.
 	return &Player{
 		BattleTag: strings.ReplaceAll(tag, "-", "#"),
-		IsPublic:  true, // unknown → default
+		IsPublic:  true, // unknown, so assume public
 	}, nil
 }
 
-// Adding function to convert ID from Search to usable URL
-func GetUnlockInfo(unlockID string) (*UnlockData, error) {
+// GetUnlockInfo resolves unlock (namecard) metadata for the given unlock ID.
+func GetUnlockInfo(ctx context.Context, unlockID string) (*UnlockData, error) {
 	c := getOWClient()
 
-	// Session Prepare
-	if err := primeOWSession(c); err != nil {
+	if err := ensureOWSession(ctx, c); err != nil {
 		return nil, err
 	}
 
-	base := "https://overwatch.blizzard.com/en-us/search/unlocks/"
 	q := url.Values{}
 	q.Set("unlockIds", unlockID)
-	fullURL := base + "?" + q.Encode()
+	fullURL := unlocksURL + "?" + q.Encode()
 
-	req, err := http.NewRequest("GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", "https://overwatch.blizzard.com/en-us/search/")
+	req.Header.Set("Referer", searchURL)
 	req.Header.Set("Accept-Language", "en,de-DE;q=0.9,de;q=0.8,en-US;q=0.7")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
@@ -163,10 +275,7 @@ func GetUnlockInfo(unlockID string) (*UnlockData, error) {
 	req.Header.Set("Sec-CH-UA-Mobile", "?0")
 	req.Header.Set("Sec-CH-UA-Platform", "\"Windows\"")
 
-	if Debug {
-		fmt.Println("[DEBUG] Unlock Request URL:", fullURL)
-		fmt.Println("[DEBUG] Unlock Request Headers:", req.Header)
-	}
+	debugf("unlock request url=%s", fullURL)
 
 	resp, err := c.Do(req)
 	if err != nil {
@@ -174,86 +283,74 @@ func GetUnlockInfo(unlockID string) (*UnlockData, error) {
 	}
 	defer resp.Body.Close()
 
-	if Debug {
-		fmt.Printf("[DEBUG] Unlock Response Status: %d %s\n", resp.StatusCode, resp.Status)
-	}
+	debugf("unlock response status=%d", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		if Debug {
-			fmt.Println("[DEBUG] Unlock Response Body:", string(b))
+		// A rejected request usually means our session cookies went stale.
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			invalidateOWSession()
 		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		debugf("unlock response body=%s", string(b))
 		return nil, fmt.Errorf("unlocks %d: %s", resp.StatusCode, string(b))
 	}
 
 	var unlocks []UnlockData
-	if err := json.NewDecoder(resp.Body).Decode(&unlocks); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&unlocks); err != nil {
 		return nil, err
 	}
 
-	if Debug {
-		fmt.Printf("[DEBUG] Decoded Unlocks (%d): %+v\n", len(unlocks), unlocks)
-	}
+	debugf("decoded unlocks count=%d", len(unlocks))
 
 	for _, u := range unlocks {
 		if u.ID == unlockID {
-			if Debug {
-				fmt.Println("[DEBUG] Match found:", u)
-			}
 			return &u, nil
 		}
 	}
 
-	if Debug {
-		fmt.Println("[DEBUG] Unlock not found for ID:", unlockID)
-	}
-	return nil, fmt.Errorf("Unlock ID %s not found", unlockID)
+	debugf("unlock not found id=%s", unlockID)
+	return nil, fmt.Errorf("unlock ID %q not found", unlockID)
 }
 
-func resolveCareerID(tag string) (string, error) {
+// careerURL builds the career URL for a tag. The tag is path-escaped so a hostile
+// value cannot traverse to a different upstream path or inject a query string.
+func careerURL(tag string) string {
+	return baseURL + "/" + url.PathEscape(tag)
+}
+
+// sameUpstreamHost reports whether u stays on the Blizzard host we scrape. It is
+// the guard that keeps a manipulated redirect from turning into an SSRF.
+func sameUpstreamHost(u *url.URL) bool {
+	return u.Scheme == "https" && (u.Host == "overwatch.blizzard.com")
+}
+
+func resolveCareerID(ctx context.Context, tag string) (string, error) {
 	tag = strings.ReplaceAll(tag, "#", "-")
 
-	if Debug {
-		fmt.Println("[DEBUG] resolveCareerID input tag:", tag)
-		fmt.Println("[DEBUG] resolveCareerID URL:", baseURL+"/"+tag)
-	}
+	target := careerURL(tag)
+	debugf("resolveCareerID tag=%s url=%s", tag, target)
 
-	jar, _ := cookiejar.New(nil)
+	client := getRedirectClient()
 
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		Jar:     jar,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	req, err := http.NewRequest("GET", baseURL+"/"+tag, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return "", err
 	}
+	setCareerHeaders(req)
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; ovrstat)")
-	req.Header.Set("Accept", "text/html")
-
-	for i := 0; i < 5; i++ {
+	for i := 0; i < maxCareerRedirects; i++ {
 		resp, err := client.Do(req)
 		if err != nil {
 			return "", err
 		}
 
-		if Debug {
-			fmt.Println("[DEBUG] Redirect step", i)
-			fmt.Println("[DEBUG] Status:", resp.StatusCode)
-			fmt.Println("[DEBUG] Location:", resp.Header.Get("Location"))
-			fmt.Println("[DEBUG] Final URL:", resp.Request.URL.String())
-		}
+		debugf("redirect step=%d status=%d location=%s", i, resp.StatusCode, resp.Header.Get("Location"))
 
-		// 🔥 FALL 1: Redirect mit Location
+		// Case 1: a redirect we have to follow manually.
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			loc := resp.Header.Get("Location")
 			if loc == "" {
-				resp.Body.Close()
+				drainAndClose(resp)
 				return "", errors.New("redirect without location")
 			}
 
@@ -261,121 +358,132 @@ func resolveCareerID(tag string) (string, error) {
 
 			if strings.Contains(decodedLoc, "|") {
 				id := strings.Trim(strings.TrimPrefix(decodedLoc, "/career/"), "/")
-				resp.Body.Close()
+				drainAndClose(resp)
 				return id, nil
 			}
 
-			nextURL := loc
-			if strings.HasPrefix(loc, "/") {
-				nextURL = "https://overwatch.blizzard.com" + loc
+			next, err := resp.Request.URL.Parse(loc)
+			drainAndClose(resp)
+			if err != nil {
+				return "", fmt.Errorf("invalid redirect location: %w", err)
+			}
+			if !sameUpstreamHost(next) {
+				return "", fmt.Errorf("refusing cross-host redirect to %q", next.Host)
 			}
 
-			resp.Body.Close()
-			req, _ = http.NewRequest("GET", nextURL, nil)
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, next.String(), nil)
+			if err != nil {
+				return "", err
+			}
+			setCareerHeaders(req)
 			continue
 		}
 
-		// 🔥 FALL 2: Finaler 200-Request → URL auswerten
-		if resp.StatusCode == 200 {
-			finalPath := resp.Request.URL.Path
-			decodedPath, _ := url.PathUnescape(finalPath)
+		// Case 2: a final 200 response, so evaluate the resulting URL.
+		if resp.StatusCode == http.StatusOK {
+			decodedPath, _ := url.PathUnescape(resp.Request.URL.Path)
 
 			if strings.Contains(decodedPath, "|") {
 				id := strings.Trim(strings.TrimPrefix(decodedPath, "/en-us/career/"), "/")
-				resp.Body.Close()
+				drainAndClose(resp)
 				return id, nil
 			}
 		}
 
-		resp.Body.Close()
+		status := resp.StatusCode
+		drainAndClose(resp)
+		// Rate limits and outages must not be reported as a missing player.
+		if status != http.StatusOK && status != http.StatusNotFound {
+			return "", fmt.Errorf("career lookup returned %d", status)
+		}
 		break
 	}
 
-	if Debug {
-		fmt.Println("[DEBUG] resolveCareerID FAILED for tag:", tag)
-	}
+	debugf("resolveCareerID failed tag=%s", tag)
 
 	return "", ErrPlayerNotFound
 }
 
-// Stats retrieves player stats
-// Universal method if you don't need to differentiate it
-func Stats(platformKey, tag string) (*PlayerStats, error) {
-	// Do platform key mapping
+func setCareerHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; ovrstat)")
+	req.Header.Set("Accept", "text/html")
+}
+
+// drainAndClose consumes a bounded amount of the body before closing, so the
+// underlying connection can be returned to the idle pool.
+func drainAndClose(resp *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	_ = resp.Body.Close()
+}
+
+// mapPlatformKey translates the public platform name to the identifier the page uses.
+func mapPlatformKey(platformKey string) string {
 	switch platformKey {
 	case PlatformPC:
-		platformKey = "mouseKeyboard"
+		return "mouseKeyboard"
 	case PlatformConsole:
-		platformKey = "controller"
+		return "controller"
 	}
+	return platformKey
+}
 
-	// Parse the API response first
-	var ps PlayerStats
-
-	player, err := resolvePlayerByDoubleSearch(tag)
+// fetchProfileDocument resolves the career ID for a tag and loads the parsed
+// profile page. It is shared by Stats and ProfileStats.
+func fetchProfileDocument(ctx context.Context, tag string) (*goquery.Document, error) {
+	careerID, err := resolveCareerID(ctx, tag)
 	if err != nil {
 		return nil, err
 	}
 
-	if !player.IsPublic {
-		ps.Private = true
-		return &ps, nil
-	}
+	profileURL := baseURL + "/" + careerID + "/"
+	debugf("resolved careerID=%s profileURL=%s", careerID, profileURL)
 
-	// Optional (wenn du es brauchst)
-	ps.NamecardImage = player.Namecard
-
-	// Create the profile url for scraping
-	// Change Minus in Name with '#' for correct searches
-	careerID, err := resolveCareerID(tag)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, profileURL, nil)
 	if err != nil {
 		return nil, err
 	}
+	setCareerHeaders(req)
 
-	profileUrl := baseURL + "/" + careerID + "/"
-
-	if Debug {
-		fmt.Println("[DEBUG] Resolved CareerID:", careerID)
-		fmt.Println("[DEBUG] Profile URL:", profileUrl)
-	}
-
-	// Perform the stats request and decode the response
-	res, err := getOWClient().Get(profileUrl)
-
+	res, err := getOWClient().Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to retrieve profile")
+		return nil, fmt.Errorf("failed to retrieve profile: %w", err)
 	}
 	defer res.Body.Close()
 
-	// Parses the stats request into a goquery document
-	pd, err := goquery.NewDocumentFromReader(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to create goquery document")
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("profile request returned %d", res.StatusCode)
 	}
 
-	// Checks if profile not found, site still returns 200 in this case
+	pd, err := goquery.NewDocumentFromReader(io.LimitReader(res.Body, maxResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create goquery document: %w", err)
+	}
+
+	// The site still answers 200 for unknown players, so detect it by content.
 	if pd.Find("[slot=heading]").First().Text() == "Page Not Found" {
 		return nil, ErrPlayerNotFound
 	}
 
-	ps.Name = pd.Find(".Profile-player--name").Text()
+	return pd, nil
+}
 
+// collectPlatforms builds the per-platform view map from the profile document.
+func collectPlatforms(pd *goquery.Document) map[string]Platform {
 	platforms := make(map[string]Platform)
 
 	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
-		id, _ := sel.Attr("id")
+		rawID, _ := sel.Attr("id")
 
-		idMatch := filterRegexp.FindStringSubmatch(id)
-		if idMatch == nil {
+		id, ok := submatch(filterRegexp, rawID, 1)
+		if !ok {
+			debugf("skipping filter with unexpected id=%q", rawID)
 			return
 		}
-		id = idMatch[1]
 
 		viewID := "." + id + "-view"
 
-		// Using combined classes (.class.class2) we can filter out our views based on platform
+		// Using combined classes (.class.class2) we can filter views by platform.
 		rankWrapper := pd.Find(".Profile-playerSummary--rankWrapper" + viewID)
-
 		view := pd.Find(".Profile-view" + viewID)
 
 		if view.Length() == 0 {
@@ -387,27 +495,53 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 			RankWrapper: rankWrapper,
 			ProfileView: view,
 		}
-
 	})
 
-	platform, exists := platforms[platformKey]
+	return platforms
+}
 
+// Stats retrieves the full player stats for the given platform and tag.
+func Stats(ctx context.Context, platformKey, tag string) (*PlayerStats, error) {
+	platformKey = mapPlatformKey(platformKey)
+
+	var ps PlayerStats
+
+	player, err := resolvePlayerByDoubleSearch(ctx, tag)
+	if err != nil {
+		return nil, err
+	}
+
+	if !player.IsPublic {
+		ps.Private = true
+		return &ps, nil
+	}
+
+	ps.NamecardImage = player.Namecard
+
+	pd, err := fetchProfileDocument(ctx, tag)
+	if err != nil {
+		return nil, err
+	}
+
+	ps.Name = pd.Find(".Profile-player--name").Text()
+
+	platform, exists := collectPlatforms(pd)[platformKey]
 	if !exists {
 		return nil, ErrInvalidPlatform
 	}
 
 	// Scrapes all stats for the passed user and sets struct member data
-	parseGeneralInfo(platform, pd.Find(".Profile-masthead").First(), &ps)
+	parseGeneralInfo(ctx, platform, pd.Find(".Profile-masthead").First(), &ps)
 
 	parseDetailedStats(platform, ".quickPlay-view", &ps.QuickPlayStats.StatsCollection)
 	parseDetailedStats(platform, ".competitive-view", &ps.CompetitiveStats.StatsCollection)
 
-	competitiveSeason, _ := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2")
-
-	if competitiveSeason != "" {
-		competitiveSeason, _ := strconv.Atoi(competitiveSeason)
-
-		ps.CompetitiveStats.Season = &competitiveSeason
+	if seasonAttr, _ := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2"); seasonAttr != "" {
+		if season, err := strconv.Atoi(seasonAttr); err == nil {
+			ps.CompetitiveStats.Season = &season
+		} else {
+			debugf("unparsable competitive season attr=%q", seasonAttr)
+		}
 	}
 
 	addGameStats(&ps, &ps.QuickPlayStats.StatsCollection)
@@ -416,38 +550,62 @@ func Stats(platformKey, tag string) (*PlayerStats, error) {
 	return &ps, nil
 }
 
+// gameInt reads an int stat from a parsed game map. Values are produced by
+// parseType and may be int, float64 or string, so never assert the type directly.
+func gameInt(game map[string]any, key string) (int, bool) {
+	v, ok := game[key]
+	if !ok {
+		return 0, false
+	}
+	switch val := v.(type) {
+	case int:
+		return val, true
+	case float64:
+		return int(val), true
+	case string:
+		i, err := strconv.Atoi(strings.ReplaceAll(strings.ReplaceAll(val, ",", ""), "%", ""))
+		if err != nil {
+			return 0, false
+		}
+		return i, true
+	}
+	return 0, false
+}
+
+// gameString reads a string stat from a parsed game map.
+func gameString(game map[string]any, key string) (string, bool) {
+	v, ok := game[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
+}
+
 func addGameStats(ps *PlayerStats, statsCollection *StatsCollection) {
-	if heroStats, ok := statsCollection.CareerStats["allHeroes"]; ok {
-		if gamesPlayed, ok := heroStats.Game["gamesPlayed"].(int); ok {
-			ps.GamesPlayed += gamesPlayed
-		}
-
-		if gamesWon, ok := heroStats.Game["gamesWon"].(int); ok {
-			ps.GamesWon += gamesWon
-		}
-
-		if gamesLost, ok := heroStats.Game["gamesLost"].(int); ok {
-			ps.GamesLost += gamesLost
-		}
+	heroStats, ok := statsCollection.CareerStats["allHeroes"]
+	if !ok {
+		return
+	}
+	if v, ok := gameInt(heroStats.Game, "gamesPlayed"); ok {
+		ps.GamesPlayed += v
+	}
+	if v, ok := gameInt(heroStats.Game, "gamesWon"); ok {
+		ps.GamesWon += v
+	}
+	if v, ok := gameInt(heroStats.Game, "gamesLost"); ok {
+		ps.GamesLost += v
 	}
 }
 
-// Only Gets Profile Stats
-// This part is and will be mainly used in OWidget 2 Application
+// ProfileStats retrieves the reduced profile-only stats. This is primarily used
+// by the OWidget 2 application.
+func ProfileStats(ctx context.Context, platformKey, tag string) (*PlayerStatsProfile, error) {
+	platformKey = mapPlatformKey(platformKey)
 
-func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
-	// Do platform key mapping
-	switch platformKey {
-	case PlatformPC:
-		platformKey = "mouseKeyboard"
-
-	case PlatformConsole:
-		platformKey = "controller"
-	}
-	// Parse the API response first
 	var ps PlayerStatsProfile
 
-	player, err := resolvePlayerByDoubleSearch(tag)
+	player, err := resolvePlayerByDoubleSearch(ctx, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -457,197 +615,106 @@ func ProfileStats(platformKey, tag string) (*PlayerStatsProfile, error) {
 		return &ps, nil
 	}
 
-	// Optional (wenn du es brauchst)
 	ps.NamecardImage = player.Namecard
 
-	// Create the profile url for scraping
-	careerID, err := resolveCareerID(tag)
+	pd, err := fetchProfileDocument(ctx, tag)
 	if err != nil {
 		return nil, err
 	}
 
-	profileUrl := baseURL + "/" + careerID + "/"
-
-	if Debug {
-		fmt.Println("[DEBUG] Resolved CareerID:", careerID)
-		fmt.Println("[DEBUG] Profile URL:", profileUrl)
-	}
-
-	// Perform the stats request and decode the response
-	res, err := getOWClient().Get(profileUrl)
-
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to retrieve profile")
-	}
-	defer res.Body.Close()
-
-	// Parses the stats request into a goquery document
-	pd, err := goquery.NewDocumentFromReader(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to create goquery document")
-	}
-
-	// Checks if profile not found, site still returns 200 in this case
-	if pd.Find("[slot=heading]").First().Text() == "Page Not Found" {
-		return nil, ErrPlayerNotFound
-	}
-
 	ps.Name = pd.Find(".Profile-player--name").Text()
 
-	platforms := make(map[string]Platform)
-
-	pd.Find(".Profile-player--filters .Profile-player--filter").Each(func(i int, sel *goquery.Selection) {
-		id, _ := sel.Attr("id")
-
-		idMatch := filterRegexp.FindStringSubmatch(id)
-		if idMatch == nil {
-			return
-		}
-		id = idMatch[1]
-
-		viewID := "." + id + "-view"
-
-		// Using combined classes (.class.class2) we can filter out our views based on platform
-		rankWrapper := pd.Find(".Profile-playerSummary--rankWrapper" + viewID)
-
-		view := pd.Find(".Profile-view" + viewID)
-
-		if view.Length() == 0 {
-			return
-		}
-
-		platforms[id] = Platform{
-			Name:        sel.Text(),
-			RankWrapper: rankWrapper,
-			ProfileView: view,
-		}
-	})
-
-	platform, exists := platforms[platformKey]
-
+	platform, exists := collectPlatforms(pd)[platformKey]
 	if !exists {
 		return nil, ErrInvalidPlatform
 	}
 
 	// Scrapes all stats for the passed user and sets struct member data
-	parseGeneralInfoProfile(platform, pd.Find(".Profile-masthead").First(), &ps)
+	parseGeneralInfoProfile(ctx, platform, pd.Find(".Profile-masthead").First(), &ps)
 
 	careerStats := parseCareerStats(platform.ProfileView.Find(".stats.competitive-view"))
+	fillSummaryTotals(&ps.CompetitiveStats.SummaryStats, careerStats)
 
-	if heroStats, ok := careerStats["allHeroes"]; ok {
-		if gamesPlayed, ok := heroStats.Game["gamesPlayed"].(int); ok {
-			ps.CompetitiveStats.GamesPlayed = gamesPlayed
-		}
-		if gamesWon, ok := heroStats.Game["gamesWon"].(int); ok {
-			ps.CompetitiveStats.GamesWon = gamesWon
-		}
-		if gamesLost, ok := heroStats.Game["gamesLost"].(int); ok {
-			ps.CompetitiveStats.GamesLost = gamesLost
-		}
-		if timePlayed, ok := heroStats.Game["timePlayed"].(string); ok {
-			ps.CompetitiveStats.TimePlayed = timePlayed
-		}
-	}
 	careerStatsQP := parseCareerStats(platform.ProfileView.Find(".stats.quickPlay-view"))
+	fillSummaryTotals(&ps.QuickplayStats.SummaryStats, careerStatsQP)
+
 	if seasonAttr, exists := pd.Find("[data-latestherostatrankseasonow2]").Attr("data-latestherostatrankseasonow2"); exists {
 		if seasonNumber, err := strconv.Atoi(seasonAttr); err == nil {
 			ps.CompetitiveStats.Season = &seasonNumber
+		} else {
+			debugf("unparsable competitive season attr=%q", seasonAttr)
 		}
 	}
 
-	if heroStats, ok := careerStatsQP["allHeroes"]; ok {
-		if gamesPlayed, ok := heroStats.Game["gamesPlayed"].(int); ok {
-			ps.QuickplayStats.GamesPlayed = gamesPlayed
-		}
-		if gamesWon, ok := heroStats.Game["gamesWon"].(int); ok {
-			ps.QuickplayStats.GamesWon = gamesWon
-		}
-		if gamesLost, ok := heroStats.Game["gamesLost"].(int); ok {
-			ps.QuickplayStats.GamesLost = gamesLost
-		}
-		if timePlayed, ok := heroStats.Game["timePlayed"].(string); ok {
-			ps.QuickplayStats.TimePlayed = timePlayed
-		}
-	}
-
-	mostPlayedHero := platform.ProfileView.
-		Find(".Profile-heroSummary--view.competitive-view").
-		Find(".Profile-progressBar-title").
-		First().
-		Text()
-
-	ps.CompetitiveStats.MostPlayedHero = strings.TrimSpace(mostPlayedHero)
-	ps.CompetitiveStats.MostPlayedHeroTimePlayed = platform.ProfileView.
-		Find(".Profile-heroSummary--view.competitive-view").
-		Find(".Profile-progressBar-description").
-		First().
-		Text()
-
-	if heroStats, ok := careerStats[cleanJSONKey(ps.CompetitiveStats.MostPlayedHero)]; ok {
-		if val, ok := heroStats.Game["gamesPlayed"]; ok {
-			if i, ok := val.(int); ok {
-				ps.CompetitiveStats.MostPlayedHeroGamesPlayed = i
-			}
-		}
-		if val, ok := heroStats.Game["winPercentage"]; ok {
-			if s, ok := val.(string); ok {
-				clean := strings.Replace(s, "%", "", -1)
-				if i, err := strconv.Atoi(clean); err == nil {
-					ps.CompetitiveStats.MostPlayedHeroWinPercentage = i
-				}
-			}
-		}
-	}
-
-	mostPlayedHeroQP := platform.ProfileView.
-		Find(".Profile-heroSummary--view.quickPlay-view").
-		Find(".Profile-progressBar-title").
-		First().
-		Text()
-
-	ps.QuickplayStats.MostPlayedHero = strings.TrimSpace(mostPlayedHeroQP)
-	ps.QuickplayStats.MostPlayedHeroTimePlayed = platform.ProfileView.
-		Find(".Profile-heroSummary--view.quickPlay-view").
-		Find(".Profile-progressBar-description").
-		First().
-		Text()
-
-	if heroStats, ok := careerStatsQP[cleanJSONKey(ps.QuickplayStats.MostPlayedHero)]; ok {
-		if val, ok := heroStats.Game["gamesPlayed"]; ok {
-			if i, ok := val.(int); ok {
-				ps.QuickplayStats.MostPlayedHeroGamesPlayed = i
-			}
-		}
-		if val, ok := heroStats.Game["winPercentage"]; ok {
-			if s, ok := val.(string); ok {
-				clean := strings.Replace(s, "%", "", -1)
-				if i, err := strconv.Atoi(clean); err == nil {
-					ps.QuickplayStats.MostPlayedHeroWinPercentage = i
-				}
-			}
-		}
-	}
+	fillMostPlayedHero(&ps.CompetitiveStats.SummaryStats, platform, ".competitive-view", careerStats)
+	fillMostPlayedHero(&ps.QuickplayStats.SummaryStats, platform, ".quickPlay-view", careerStatsQP)
 
 	return &ps, nil
 }
 
-func retrievePlayers(tag string) ([]Player, error) {
-	if strings.Contains(tag, "-") {
-		tag = strings.Replace(tag, "-", "#", -1)
+// fillSummaryTotals copies the aggregated "allHeroes" totals into a summary.
+func fillSummaryTotals(sum *SummaryStats, careerStats map[string]*CareerStats) {
+	heroStats, ok := careerStats["allHeroes"]
+	if !ok {
+		return
 	}
-	// Perform api request
-	var platforms []Player
+	if v, ok := gameInt(heroStats.Game, "gamesPlayed"); ok {
+		sum.GamesPlayed = v
+	}
+	if v, ok := gameInt(heroStats.Game, "gamesWon"); ok {
+		sum.GamesWon = v
+	}
+	if v, ok := gameInt(heroStats.Game, "gamesLost"); ok {
+		sum.GamesLost = v
+	}
+	if v, ok := gameString(heroStats.Game, "timePlayed"); ok {
+		sum.TimePlayed = v
+	}
+}
 
-	apires, err := http.Get(apiURL + tag)
+// fillMostPlayedHero resolves the most played hero for a play mode and copies
+// its games played / win percentage into the summary.
+func fillMostPlayedHero(sum *SummaryStats, platform Platform, playMode string, careerStats map[string]*CareerStats) {
+	view := platform.ProfileView.Find(".Profile-heroSummary--view" + playMode)
+
+	sum.MostPlayedHero = strings.TrimSpace(view.Find(".Profile-progressBar-title").First().Text())
+	sum.MostPlayedHeroTimePlayed = view.Find(".Profile-progressBar-description").First().Text()
+
+	heroStats, ok := careerStats[cleanJSONKey(sum.MostPlayedHero)]
+	if !ok {
+		return
+	}
+	if v, ok := gameInt(heroStats.Game, "gamesPlayed"); ok {
+		sum.MostPlayedHeroGamesPlayed = v
+	}
+	if v, ok := gameInt(heroStats.Game, "winPercentage"); ok {
+		sum.MostPlayedHeroWinPercentage = v
+	}
+}
+
+func retrievePlayers(ctx context.Context, tag string) ([]Player, error) {
+	tag = strings.ReplaceAll(tag, "-", "#")
+
+	// The tag is user supplied, so escape it instead of concatenating it raw.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+url.PathEscape(tag), nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to perform platform API request")
+		return nil, err
 	}
+	setCareerHeaders(req)
 
+	apires, err := getOWClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform platform API request: %w", err)
+	}
 	defer apires.Body.Close()
 
-	// Decode received JSON
-	if err := json.NewDecoder(apires.Body).Decode(&platforms); err != nil {
-		return nil, errors.Wrap(err, "Failed to decode platform API response")
+	if apires.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("platform API returned %d", apires.StatusCode)
+	}
+
+	var platforms []Player
+	if err := json.NewDecoder(io.LimitReader(apires.Body, maxResponseBytes)).Decode(&platforms); err != nil {
+		return nil, fmt.Errorf("failed to decode platform API response: %w", err)
 	}
 	return platforms, nil
 }
@@ -659,170 +726,179 @@ var (
 	filterRegexp      = regexp.MustCompile("^([a-zA-Z]+)Filter$")
 )
 
-// roleFromIcon extracts the role name from a role icon path of the form
-// /(offense|support|tank)-HEX.svg (or .-separated). Returns "" if the role
-// can't be determined, so a changed/empty icon format does not panic.
+// populateGeneralInfo extracts the users general info and returns it in a
+// PlayerStats struct
+
+// parseEndorsement extracts the endorsement level from its icon URL. A markup
+// change makes this return 0 rather than panicking.
+func parseEndorsement(icon string) int {
+	raw, ok := submatch(endorsementRegexp, icon, 1)
+	if !ok {
+		debugf("endorsement icon did not match: %q", icon)
+		return 0
+	}
+	level, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return level
+}
+
+// normalizeEndorsementIcon unwraps the /svg?path= indirection used for some icons.
+func normalizeEndorsementIcon(icon string) string {
+	if !strings.HasPrefix(icon, "/svg") {
+		return icon
+	}
+	idx := strings.Index(icon, "?")
+	if idx < 0 {
+		return icon
+	}
+	q, err := url.ParseQuery(icon[idx+1:])
+	if err != nil || q.Get("path") == "" {
+		return icon
+	}
+	return q.Get("path")
+}
+
+// roleFromIcon extracts the role from an icon path of the form
+// /(offense|support|tank)-HEX.svg (newer pages use '.' instead of '-').
+// Returns "" when the shape does not match.
 func roleFromIcon(roleIcon string) string {
 	if roleIcon == "" {
 		return ""
 	}
-	role := path.Base(roleIcon)
-	if i := strings.IndexAny(role, ".-"); i > 0 {
-		return role[:i]
+	base := strings.TrimSuffix(path.Base(roleIcon), path.Ext(roleIcon))
+	idx := strings.IndexAny(base, ".-")
+	if idx <= 0 {
+		debugf("role icon has unexpected shape: %q", roleIcon)
+		return ""
+	}
+	return base[:idx]
+}
+
+// attrValue returns the value of the named attribute on a node.
+func attrValue(n *html.Node, key string) string {
+	if n == nil {
+		return ""
+	}
+	for _, attr := range n.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
 	}
 	return ""
 }
 
-// populateGeneralInfo extracts the users general info and returns it in a
-// PlayerStats struct
+// buildRating assembles a Rating from a role wrapper selection. It reports false
+// when the markup does not contain the pieces we need, so the caller can skip
+// the entry instead of emitting bogus data.
+func buildRating(sel *goquery.Selection, roleIcon string) (Rating, bool) {
+	role := roleFromIcon(roleIcon)
+	if role == "" {
+		return Rating{}, false
+	}
 
-func parseGeneralInfo(platform Platform, s *goquery.Selection, ps *PlayerStats) {
+	rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
+	tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
+
+	group, ok := submatch(rankRegexp, rankIcon, 1)
+	if !ok {
+		debugf("rank icon did not match: %q", rankIcon)
+		return Rating{}, false
+	}
+
+	tier := 0
+	if tierRaw, ok := submatch(tierRegexp, tierIcon, 1); ok {
+		tier, _ = strconv.Atoi(tierRaw)
+	} else {
+		debugf("tier icon did not match: %q", tierIcon)
+	}
+
+	return Rating{
+		Group:    group,
+		Tier:     tier,
+		Role:     role,
+		RoleIcon: roleIcon,
+		RankIcon: rankIcon,
+		TierIcon: tierIcon,
+	}, true
+}
+
+// resolveNamecard looks up namecard metadata and returns title and image.
+func resolveNamecard(ctx context.Context, namecardID string) (title, image string) {
+	unlockInfo, err := GetUnlockInfo(ctx, namecardID)
+	if err != nil {
+		debugf("namecard lookup failed id=%s: %v", namecardID, err)
+		return "", ""
+	}
+	return unlockInfo.Name, unlockInfo.Icon
+}
+
+// roleIconFromWrapper reads the role icon out of a role wrapper, handling both
+// the <img> and the <svg><use> variants Blizzard has shipped.
+func roleIconFromWrapper(sel *goquery.Selection) string {
+	roleElement := firstNode(sel.Find(".Profile-playerSummary--role"))
+	if roleElement == nil {
+		return ""
+	}
+
+	switch {
+	case roleElement.Data == "div":
+		return attrValue(firstNode(sel.Find(".Profile-playerSummary--role img")), "src")
+	case roleElement.Namespace == "svg":
+		return attrValue(firstNode(sel.Find(".Profile-playerSummary--role use")), "href")
+	}
+	return ""
+}
+
+func parseGeneralInfo(ctx context.Context, platform Platform, s *goquery.Selection, ps *PlayerStats) {
 	// Populates all general player information
 	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
-	if m := endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon); m != nil {
-		ps.Endorsement, _ = strconv.Atoi(m[1])
-	}
+	ps.Endorsement = parseEndorsement(ps.EndorsementIcon)
 	ps.Title = s.Find(".Profile-player--title").Text()
 
-	// Try to get Namecard
 	if namecardAttr, exists := s.Attr("namecard-id"); exists {
 		ps.NamecardID = namecardAttr
-
-		// Hole die Info aus Blizzard Unlocks API
-		unlockInfo, err := GetUnlockInfo(namecardAttr)
-		if err == nil {
-			ps.NamecardTitle = unlockInfo.Name
-			ps.NamecardImage = unlockInfo.Icon
+		if title, image := resolveNamecard(ctx, namecardAttr); title != "" || image != "" {
+			ps.NamecardTitle = title
+			ps.NamecardImage = image
 		}
 	}
 
-	// Parse Endorsement Icon path (/svg?path=)
-	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
-		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])
+	ps.EndorsementIcon = normalizeEndorsementIcon(ps.EndorsementIcon)
 
-		if err == nil && q.Get("path") != "" {
-			ps.EndorsementIcon = q.Get("path")
-		}
-	}
-
-	// Ratings
-	// Note that .is-active is the default platform
+	// Ratings. Note that .is-active is the default platform.
 	platform.RankWrapper.Find(".Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
-		// Rank selections.
-
-		roleSel := sel.Find(".Profile-playerSummary--role")
-		if len(roleSel.Nodes) == 0 {
-			return
+		if rating, ok := buildRating(sel, roleIconFromWrapper(sel)); ok {
+			ps.Ratings = append(ps.Ratings, rating)
 		}
-		roleIconElement := roleSel.Nodes[0]
-
-		var roleIcon string
-		if roleIconElement.Data == "div" {
-			imgSel := sel.Find(".Profile-playerSummary--role img")
-			if len(imgSel.Nodes) == 0 {
-				return
-			}
-			roleIconElement = imgSel.Nodes[0]
-
-			for _, attr := range roleIconElement.Attr {
-				if attr.Key == "src" {
-					roleIcon = attr.Val
-					break
-				}
-			}
-		} else if roleIconElement.Namespace == "svg" {
-			useSel := sel.Find(".Profile-playerSummary--role use")
-			if len(useSel.Nodes) == 0 {
-				return
-			}
-			roleIconElement = useSel.Nodes[0]
-			for _, attr := range roleIconElement.Attr {
-				if attr.Key == "href" {
-					roleIcon = attr.Val
-					break
-				}
-			}
-		}
-
-		// Format is /(offense|support|tank)-HEX.svg
-		role := roleFromIcon(roleIcon)
-		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
-		tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
-		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
-		tierInfo := tierRegexp.FindStringSubmatch(tierIcon)
-		if rankInfo == nil || tierInfo == nil {
-			return
-		}
-		tier, _ := strconv.Atoi(tierInfo[1])
-
-		ps.Ratings = append(ps.Ratings, Rating{
-			Group:    rankInfo[1],
-			Tier:     tier,
-			Role:     role,
-			RoleIcon: roleIcon,
-			RankIcon: rankIcon,
-			TierIcon: tierIcon,
-		})
 	})
 }
 
-func parseGeneralInfoProfile(platform Platform, s *goquery.Selection, ps *PlayerStatsProfile) {
+func parseGeneralInfoProfile(ctx context.Context, platform Platform, s *goquery.Selection, ps *PlayerStatsProfile) {
 	// Populates all general player information
 	ps.Icon, _ = s.Find(".Profile-player--portrait").Attr("src")
 	ps.EndorsementIcon, _ = s.Find(".Profile-playerSummary--endorsement").Attr("src")
-	if m := endorsementRegexp.FindStringSubmatch(ps.EndorsementIcon); m != nil {
-		ps.Endorsement, _ = strconv.Atoi(m[1])
-	}
+	ps.Endorsement = parseEndorsement(ps.EndorsementIcon)
 	ps.Title = s.Find(".Profile-player--title").Text()
 
-	// Try to get Namecard
 	if namecardAttr, exists := s.Attr("namecard-id"); exists {
 		ps.NamecardID = namecardAttr
-
-		// Hole die Info aus Blizzard Unlocks API
-		unlockInfo, err := GetUnlockInfo(namecardAttr)
-		if err == nil {
-			ps.NamecardTitle = unlockInfo.Name
-			ps.NamecardImage = unlockInfo.Icon
+		if title, image := resolveNamecard(ctx, namecardAttr); title != "" || image != "" {
+			ps.NamecardTitle = title
+			ps.NamecardImage = image
 		}
 	}
 
-	// Parse Endorsement Icon path (/svg?path=)
-	if strings.Index(ps.EndorsementIcon, "/svg") == 0 {
-		q, err := url.ParseQuery(ps.EndorsementIcon[strings.Index(ps.EndorsementIcon, "?")+1:])
+	ps.EndorsementIcon = normalizeEndorsementIcon(ps.EndorsementIcon)
 
-		if err == nil && q.Get("path") != "" {
-			ps.EndorsementIcon = q.Get("path")
-		}
-	}
-
-	// Ratings
-	// Note that .is-active is the default platform
+	// Ratings. Note that .is-active is the default platform.
 	platform.RankWrapper.Find("div.Profile-playerSummary--roleWrapper").Each(func(i int, sel *goquery.Selection) {
-		// Rank selections.
-
 		roleIcon, _ := sel.Find("div.Profile-playerSummary--role img").Attr("src")
-
-		// Format is /(offense|support|...)-HEX.svg
-		role := roleFromIcon(roleIcon)
-		rankIcon, _ := sel.Find("img.Profile-playerSummary--rank").Attr("src")
-		tierIcon, _ := sel.Find("img.Profile-playerSummary--rank").Eq(1).Attr("src")
-		rankInfo := rankRegexp.FindStringSubmatch(rankIcon)
-		tierInfo := tierRegexp.FindStringSubmatch(tierIcon)
-		if rankInfo == nil || tierInfo == nil {
-			return
+		if rating, ok := buildRating(sel, roleIcon); ok {
+			ps.Ratings = append(ps.Ratings, rating)
 		}
-		tier, _ := strconv.Atoi(tierInfo[1])
-
-		ps.Ratings = append(ps.Ratings, Rating{
-			Group:    rankInfo[1],
-			Tier:     tier,
-			Role:     role,
-			RoleIcon: roleIcon,
-			RankIcon: rankIcon,
-			TierIcon: tierIcon,
-		})
 	})
 }
 
@@ -836,7 +912,7 @@ func parseDetailedStats(platform Platform, playMode string, sc *StatsCollection)
 		if careerStats, ok := sc.CareerStats[heroName]; ok {
 
 			// Helper closure to parse int from percent string or int value
-			parseVal := func(m map[string]interface{}, key string) int {
+			parseVal := func(m map[string]any, key string) int {
 				if v, ok := m[key]; ok {
 					switch val := v.(type) {
 					case int:
@@ -845,8 +921,8 @@ func parseDetailedStats(platform Platform, playMode string, sc *StatsCollection)
 						return int(val)
 					case string:
 						// Handle percentages "49%"
-						clean := strings.Replace(val, "%", "", -1)
-						clean = strings.Replace(clean, ",", "", -1)
+						clean := strings.ReplaceAll(val, "%", "")
+						clean = strings.ReplaceAll(clean, ",", "")
 						if i, err := strconv.Atoi(clean); err == nil {
 							return i
 						}
@@ -856,7 +932,7 @@ func parseDetailedStats(platform Platform, playMode string, sc *StatsCollection)
 			}
 
 			// Helper for float parsing
-			parseFloat := func(m map[string]interface{}, key string) float64 {
+			parseFloat := func(m map[string]any, key string) float64 {
 				if v, ok := m[key]; ok {
 					switch val := v.(type) {
 					case float64:
@@ -864,8 +940,8 @@ func parseDetailedStats(platform Platform, playMode string, sc *StatsCollection)
 					case int:
 						return float64(val)
 					case string:
-						clean := strings.Replace(val, "%", "", -1)
-						clean = strings.Replace(clean, ",", "", -1)
+						clean := strings.ReplaceAll(val, "%", "")
+						clean = strings.ReplaceAll(clean, ",", "")
 						if f, err := strconv.ParseFloat(clean, 64); err == nil {
 							return f
 						}
@@ -964,26 +1040,26 @@ func parseHeroStats(heroStatsSelector *goquery.Selection) map[string]*TopHeroSta
 			case "gamesWon":
 				bhsMap[heroName].GamesWon, _ = strconv.Atoi(statVal)
 			case "gamesPlayed":
-				bhsMap[heroName].GamesPlayed, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].GamesPlayed, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			case "gamesLost":
-				bhsMap[heroName].GamesLost, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].GamesLost, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			case "winPercentage":
-				bhsMap[heroName].WinPercentage, _ = strconv.Atoi(strings.Replace(statVal, "%", "", -1))
+				bhsMap[heroName].WinPercentage, _ = strconv.Atoi(strings.ReplaceAll(statVal, "%", ""))
 
 			case "eliminationsPerLife":
 				bhsMap[heroName].EliminationsPerLife, _ = strconv.ParseFloat(statVal, 64)
 			case "multikillBest":
-				bhsMap[heroName].MultiKillBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].MultiKillBest, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			case "objectiveKills":
 				bhsMap[heroName].ObjectiveKills, _ = strconv.ParseFloat(statVal, 64)
 			case "objectiveKillsBest":
-				bhsMap[heroName].ObjectiveKillsBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].ObjectiveKillsBest, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			case "healingDoneBest":
-				bhsMap[heroName].HealingDoneBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].HealingDoneBest, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			case "damageDoneBest":
-				bhsMap[heroName].DamageDoneBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].DamageDoneBest, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			case "killStreakBest":
-				bhsMap[heroName].KillStreakBest, _ = strconv.Atoi(strings.Replace(statVal, ",", "", -1))
+				bhsMap[heroName].KillStreakBest, _ = strconv.Atoi(strings.ReplaceAll(statVal, ",", ""))
 			}
 		})
 	})
@@ -1031,7 +1107,7 @@ func parseCareerStats(careerStatsSelector *goquery.Selection) map[string]*Career
 			// Iterates over stat row
 			statBoxSel.Find(".stat-item").Each(func(i3 int, statSel *goquery.Selection) {
 				statKey := transformKey(cleanJSONKey(statSel.Find(".name").Text()))
-				statVal := strings.Replace(statSel.Find(".value").Text(), ",", "", -1) // Removes commas from 1k+ values
+				statVal := strings.ReplaceAll(statSel.Find(".value").Text(), ",", "") // Removes commas from 1k+ values
 				statVal = strings.TrimSpace(statVal)
 
 				// Creates stat map if it doesn't exist
@@ -1043,42 +1119,42 @@ func parseCareerStats(careerStatsSelector *goquery.Selection) map[string]*Career
 				switch statType {
 				case "assists":
 					if csMap[currentHero].Assists == nil {
-						csMap[currentHero].Assists = make(map[string]interface{})
+						csMap[currentHero].Assists = make(map[string]any)
 					}
 					csMap[currentHero].Assists[statKey] = parseType(statVal)
 				case "average":
 					if csMap[currentHero].Average == nil {
-						csMap[currentHero].Average = make(map[string]interface{})
+						csMap[currentHero].Average = make(map[string]any)
 					}
 					csMap[currentHero].Average[statKey] = parseType(statVal)
 				case "best":
 					if csMap[currentHero].Best == nil {
-						csMap[currentHero].Best = make(map[string]interface{})
+						csMap[currentHero].Best = make(map[string]any)
 					}
 					csMap[currentHero].Best[statKey] = parseType(statVal)
 				case "combat":
 					if csMap[currentHero].Combat == nil {
-						csMap[currentHero].Combat = make(map[string]interface{})
+						csMap[currentHero].Combat = make(map[string]any)
 					}
 					csMap[currentHero].Combat[statKey] = parseType(statVal)
 				case "deaths":
 					if csMap[currentHero].Deaths == nil {
-						csMap[currentHero].Deaths = make(map[string]interface{})
+						csMap[currentHero].Deaths = make(map[string]any)
 					}
 					csMap[currentHero].Deaths[statKey] = parseType(statVal)
 				case "heroSpecific":
 					if csMap[currentHero].HeroSpecific == nil {
-						csMap[currentHero].HeroSpecific = make(map[string]interface{})
+						csMap[currentHero].HeroSpecific = make(map[string]any)
 					}
 					csMap[currentHero].HeroSpecific[statKey] = parseType(statVal)
 				case "game":
 					if csMap[currentHero].Game == nil {
-						csMap[currentHero].Game = make(map[string]interface{})
+						csMap[currentHero].Game = make(map[string]any)
 					}
 					csMap[currentHero].Game[statKey] = parseType(statVal)
 				case "matchAwards":
 					if csMap[currentHero].MatchAwards == nil {
-						csMap[currentHero].MatchAwards = make(map[string]interface{})
+						csMap[currentHero].MatchAwards = make(map[string]any)
 					}
 					csMap[currentHero].MatchAwards[statKey] = parseType(statVal)
 				}
@@ -1088,7 +1164,7 @@ func parseCareerStats(careerStatsSelector *goquery.Selection) map[string]*Career
 	return csMap
 }
 
-func parseType(val string) interface{} {
+func parseType(val string) any {
 	i, err := strconv.Atoi(val)
 	if err == nil {
 		return i
@@ -1102,24 +1178,31 @@ func parseType(val string) interface{} {
 
 var (
 	keyReplacer = strings.NewReplacer("-", " ", ".", " ", ":", " ", "'", "", "ú", "u", "ö", "o")
+
+	// pluralRegexp strips ICU plural syntax such as
+	// "{count, plural, one {Medal} other {Medals}}" down to the "other" form.
+	// Compiled once at package level: cleanJSONKey runs hundreds of times per profile.
+	pluralRegexp = regexp.MustCompile(`{count, plural, one {.+} other {(.+)}}`)
+
+	// titleCaser replaces the deprecated strings.Title.
+	titleCaser = cases.Title(language.English)
 )
 
-// cleanJSONKey
+// cleanJSONKey turns a human readable stat label into a stable lowerCamelCase
+// JSON key.
 func cleanJSONKey(str string) string {
-	// Removes localization rubish
+	// Remove localization boilerplate.
 	if strings.Contains(str, "} other {") {
-		re := regexp.MustCompile("{count, plural, one {.+} other {(.+)}}")
-		if len(re.FindStringSubmatch(str)) == 2 {
-			otherForm := re.FindStringSubmatch(str)[1]
-			str = re.ReplaceAllString(str, otherForm)
+		if otherForm, ok := submatch(pluralRegexp, str, 1); ok {
+			str = pluralRegexp.ReplaceAllString(str, otherForm)
 		}
 	}
 
 	str = keyReplacer.Replace(str) // Removes all dashes, dots, and colons from titles
 	str = strings.ToLower(str)
-	str = strings.Title(str)                // Uppercases lowercase leading characters
-	str = strings.Replace(str, " ", "", -1) // Removes Spaces
-	for i, v := range str {                 // Lowercases initial character
+	str = titleCaser.String(str)           // Uppercases lowercase leading characters
+	str = strings.ReplaceAll(str, " ", "") // Removes spaces
+	for i, v := range str {                // Lowercases the initial character
 		return string(unicode.ToLower(v)) + str[i+1:]
 	}
 	return ""

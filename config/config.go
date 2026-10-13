@@ -1,10 +1,10 @@
 package config
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,18 +112,21 @@ func Load() *Config {
 		cfg.Redis.Host = host
 	}
 	if port := os.Getenv("REDIS_PORT"); port != "" {
-		var p int
-		if _, err := fmt.Sscanf(port, "%d", &p); err == nil {
+		// strconv.Atoi rejects trailing garbage that fmt.Sscanf would silently accept.
+		if p, err := strconv.Atoi(strings.TrimSpace(port)); err == nil {
 			cfg.Redis.Port = p
+		} else {
+			log.Printf("Warning: invalid REDIS_PORT %q, keeping %d", port, cfg.Redis.Port)
 		}
 	}
 	if password := os.Getenv("REDIS_PASSWORD"); password != "" {
 		cfg.Redis.Password = password
 	}
 	if db := os.Getenv("REDIS_DB"); db != "" {
-		var d int
-		if _, err := fmt.Sscanf(db, "%d", &d); err == nil {
+		if d, err := strconv.Atoi(strings.TrimSpace(db)); err == nil {
 			cfg.Redis.DB = d
+		} else {
+			log.Printf("Warning: invalid REDIS_DB %q, keeping %d", db, cfg.Redis.DB)
 		}
 	}
 	if ttl := os.Getenv("CACHE_TTL"); ttl != "" {

@@ -1,100 +1,141 @@
 package service
 
 import (
-	"log"
+	"context"
+	"log/slog"
+	"time"
 
 	"github.com/Domekologe/ow-api/ovrstat"
 )
 
 var debugLogging bool
 
-// SetDebugLogging enables or disables debug logging
+// refreshTimeout bounds a single background refresh.
+const refreshTimeout = 45 * time.Second
+
+// refreshSlots caps how many background refreshes may run at once. Without this
+// cap a burst of stale cache hits would spawn one goroutine and one upstream
+// request per client request, which is a fast route to an upstream ban.
+var refreshSlots = make(chan struct{}, 4)
+
+// SetDebugLogging enables or disables debug logging.
 func SetDebugLogging(enabled bool) {
 	debugLogging = enabled
+
+	level := slog.LevelInfo
+	if enabled {
+		level = slog.LevelDebug
+	}
+	slog.SetLogLoggerLevel(level)
+	ovrstat.Debug = enabled
 }
 
-// logRequest logs an incoming request in a clean format
+// logRequest logs an incoming request.
 func logRequest(platform, tag, ip string) {
-	log.Printf("Request: Player %s/%s, from: %s", platform, tag, ip)
+	slog.Info("request", "platform", platform, "tag", tag, "ip", ip)
 }
 
-// logResponse logs the response status
-func logResponse(platform, tag string, status string) {
-	log.Printf("Response: %s/%s - %s", platform, tag, status)
+// logResponse logs the outcome of a request.
+func logResponse(platform, tag, status string) {
+	slog.Info("response", "platform", platform, "tag", tag, "status", status)
 }
 
-// triggerScraperUpdate adds a player to the scraper queue (async)
-func triggerScraperUpdate(platform, tag string) {
-	if redisCache == nil {
-		return
-	}
-
+// goSafely runs fn in a goroutine with panic recovery. Background goroutines are
+// not covered by the HTTP recover middleware, so an unguarded panic there would
+// take down the whole process.
+func goSafely(name string, fn func()) {
 	go func() {
-		// Recover from any panic so a malformed profile doesn't crash the process.
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Background scraper panic for %s/%s: %v", platform, tag, r)
+				slog.Error("recovered from panic in background task", "task", name, "panic", r)
 			}
 		}()
-
-		// Fetch fresh stats in background
-		stats, err := ovrstat.Stats(platform, tag)
-		if err != nil {
-			log.Printf("Background scraper failed for %s/%s: %v", platform, tag, err)
-			return
-		}
-
-		// Update cache
-		if err := redisCache.Set(platform, tag, stats); err != nil {
-			log.Printf("Failed to update cache for %s/%s: %v", platform, tag, err)
-			return
-		}
-
-		log.Printf("Background scraper updated %s/%s", platform, tag)
+		fn()
 	}()
 }
 
-// triggerScraperUpdateProfile adds a player profile to the scraper queue (async)
-func triggerScraperUpdateProfile(platform, tag string) {
+// acquireRefreshSlot takes a worker slot without blocking. It reports false when
+// all slots are busy, in which case the refresh is simply skipped: the entry is
+// still within its hard TTL and a later request will retry.
+func acquireRefreshSlot() bool {
+	select {
+	case refreshSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func releaseRefreshSlot() { <-refreshSlots }
+
+// refreshStatsAsync re-scrapes a player's full stats in the background and
+// updates the cache. Concurrency is bounded and identical in-flight scrapes are
+// collapsed by the singleflight group in scrapeStats.
+func refreshStatsAsync(platform, tag string) {
 	if redisCache == nil {
 		return
 	}
+	if !acquireRefreshSlot() {
+		slog.Debug("skipping background refresh, all slots busy", "platform", platform, "tag", tag)
+		return
+	}
 
-	go func() {
-		// Recover from any panic so a malformed profile doesn't crash the process.
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("Background scraper (profile) panic for %s/%s: %v", platform, tag, r)
-			}
-		}()
+	goSafely("refresh-stats", func() {
+		defer releaseRefreshSlot()
 
-		// Fetch fresh profile stats in background
-		stats, err := ovrstat.ProfileStats(platform, tag)
+		ctx, cancel := context.WithTimeout(context.Background(), refreshTimeout)
+		defer cancel()
+
+		stats, err := scrapeStats(ctx, platform, tag)
 		if err != nil {
-			log.Printf("Background scraper (profile) failed for %s/%s: %v", platform, tag, err)
+			slog.Warn("background refresh failed", "platform", platform, "tag", tag, "error", err)
+			retainEntry(platform, tag, false)
 			return
 		}
-
-		// Update cache
-		if err := redisCache.SetProfile(platform, tag, stats); err != nil {
-			log.Printf("Failed to update profile cache for %s/%s: %v", platform, tag, err)
+		if err := redisCache.Set(ctx, platform, tag, stats); err != nil {
+			slog.Warn("background cache update failed", "platform", platform, "tag", tag, "error", err)
 			return
 		}
-
-		log.Printf("Background scraper updated profile %s/%s", platform, tag)
-	}()
+		slog.Info("background refresh completed", "platform", platform, "tag", tag)
+	})
 }
 
-// getClientIP extracts the real client IP from the request
-func getClientIP(c interface{}) string {
-	// Type assertion to get echo.Context
-	type contextWithRealIP interface {
-		RealIP() string
+// retainEntry keeps the existing cache entry alive after a failed refresh. It
+// uses its own context because the refresh context may already be expired.
+func retainEntry(platform, tag string, isProfile bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := redisCache.Retain(ctx, platform, tag, isProfile); err != nil {
+		slog.Warn("failed to retain cached entry", "platform", platform, "tag", tag, "error", err)
+	}
+}
+
+// refreshProfileAsync is refreshStatsAsync for the profile-only payload.
+func refreshProfileAsync(platform, tag string) {
+	if redisCache == nil {
+		return
+	}
+	if !acquireRefreshSlot() {
+		slog.Debug("skipping background profile refresh, all slots busy", "platform", platform, "tag", tag)
+		return
 	}
 
-	if ctx, ok := c.(contextWithRealIP); ok {
-		return ctx.RealIP()
-	}
+	goSafely("refresh-profile", func() {
+		defer releaseRefreshSlot()
 
-	return "unknown"
+		ctx, cancel := context.WithTimeout(context.Background(), refreshTimeout)
+		defer cancel()
+
+		stats, err := scrapeProfile(ctx, platform, tag)
+		if err != nil {
+			slog.Warn("background profile refresh failed", "platform", platform, "tag", tag, "error", err)
+			retainEntry(platform, tag, true)
+			return
+		}
+		if err := redisCache.SetProfile(ctx, platform, tag, stats); err != nil {
+			slog.Warn("background profile cache update failed", "platform", platform, "tag", tag, "error", err)
+			return
+		}
+		slog.Info("background profile refresh completed", "platform", platform, "tag", tag)
+	})
 }

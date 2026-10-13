@@ -45,9 +45,10 @@ type Rating struct {
 	TierIcon string `json:"tierIcon"`
 }
 
-type CompetitiveSummary struct {
-	Season                      *int   `json:"season,omitempty"`
-	RealSeason                  *int   `json:"realSeason"`
+// SummaryStats holds the aggregate numbers shared by the competitive and
+// quickplay summaries. It is embedded, so the JSON shape stays flat and
+// unchanged for API consumers.
+type SummaryStats struct {
 	GamesPlayed                 int    `json:"gamesPlayed,omitempty"`
 	GamesWon                    int    `json:"gamesWon,omitempty"`
 	GamesLost                   int    `json:"gamesLost,omitempty"`
@@ -58,15 +59,14 @@ type CompetitiveSummary struct {
 	MostPlayedHeroWinPercentage int    `json:"mostPlayedHeroWinPercentage,omitempty"`
 }
 
+type CompetitiveSummary struct {
+	Season     *int `json:"season,omitempty"`
+	RealSeason *int `json:"realSeason"`
+	SummaryStats
+}
+
 type QuickplaySummary struct {
-	GamesPlayed                 int    `json:"gamesPlayed,omitempty"`
-	GamesWon                    int    `json:"gamesWon,omitempty"`
-	GamesLost                   int    `json:"gamesLost,omitempty"`
-	TimePlayed                  string `json:"timePlayed,omitempty"`
-	MostPlayedHero              string `json:"mostPlayedHero,omitempty"`
-	MostPlayedHeroTimePlayed    string `json:"mostPlayedHeroTimePlayed,omitempty"`
-	MostPlayedHeroGamesPlayed   int    `json:"mostPlayedHeroGamesPlayed,omitempty"`
-	MostPlayedHeroWinPercentage int    `json:"mostPlayedHeroWinPercentage,omitempty"`
+	SummaryStats
 }
 
 type StatsCollection struct {
@@ -106,16 +106,16 @@ type TopHeroStats struct {
 
 // CareerStats holds very detailed stats for each hero
 type CareerStats struct {
-	Assists      map[string]interface{} `json:"assists"`
-	Average      map[string]interface{} `json:"average"`
-	Best         map[string]interface{} `json:"best"`
-	Combat       map[string]interface{} `json:"combat"`
-	HeroSpecific map[string]interface{} `json:"heroSpecific"`
-	Game         map[string]interface{} `json:"game"`
-	MatchAwards  map[string]interface{} `json:"matchAwards"`
+	Assists      map[string]any `json:"assists"`
+	Average      map[string]any `json:"average"`
+	Best         map[string]any `json:"best"`
+	Combat       map[string]any `json:"combat"`
+	HeroSpecific map[string]any `json:"heroSpecific"`
+	Game         map[string]any `json:"game"`
+	MatchAwards  map[string]any `json:"matchAwards"`
 
 	// Deaths appears to have been removed, so we hide it.
-	Deaths map[string]interface{} `json:"deaths,omitempty"`
+	Deaths map[string]any `json:"deaths,omitempty"`
 }
 
 // Player represents a response from the search-by-name api request

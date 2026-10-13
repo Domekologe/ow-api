@@ -1,13 +1,13 @@
-version: '3.8'
-
 services:
   # Redis Database
   redis:
     image: redis:7-alpine
     container_name: ow-api-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # No host port mapping: Redis is only reachable from the compose network.
+    # Exposing an unauthenticated Redis on the host is a common way to get owned.
+    expose:
+      - "6379"
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes
@@ -43,11 +43,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    healthcheck:
-      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthcheck" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # The healthcheck is defined in the Dockerfile.
 
   # Scraper Service
   scraper:

@@ -1,10 +1,11 @@
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
+	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -13,23 +14,39 @@ import (
 	"github.com/Domekologe/ow-api/ovrstat"
 )
 
-func main() {
-	log.Println("Starting Overwatch Stats Scraper...")
+const (
+	// scrapeDelay paces requests against the upstream so a large cache does not
+	// look like an attack.
+	scrapeDelay = 2 * time.Second
 
-	// Load configuration
+	// perPlayerTimeout bounds a single player refresh.
+	perPlayerTimeout = 60 * time.Second
+)
+
+func main() {
+	slog.Info("starting Overwatch stats scraper")
+
 	cfg := config.Load()
 
+	if cfg.Logging.Debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+		ovrstat.Debug = true
+	}
+
 	if !cfg.Scraper.Enabled {
-		log.Println("Scraper is disabled in configuration. Exiting.")
+		slog.Info("scraper is disabled in configuration, exiting")
 		return
 	}
 
 	if !cfg.Redis.Enabled {
-		log.Fatal("Redis must be enabled for scraper to work")
+		slog.Error("Redis must be enabled for the scraper to work")
+		os.Exit(1)
 	}
 
-	// Connect to Redis
-	redisCache, err := cache.NewRedisCache(
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	redisCache, err := cache.NewRedisCache(ctx,
 		cfg.Redis.Host,
 		cfg.Redis.Port,
 		cfg.Redis.Password,
@@ -37,124 +54,128 @@ func main() {
 		cfg.GetCacheTTL(),
 	)
 	if err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
+		slog.Error("failed to connect to Redis", "error", err)
+		os.Exit(1)
 	}
-	defer redisCache.Close()
+	defer func() {
+		if err := redisCache.Close(); err != nil {
+			slog.Warn("failed to close Redis connection", "error", err)
+		}
+	}()
 
-	log.Printf("Connected to Redis at %s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	log.Printf("Scraper interval: %s", cfg.Scraper.Interval)
-
-	// Setup graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Create ticker for periodic updates
 	interval := cfg.GetScraperInterval()
+	slog.Info("scraper configured", "interval", interval)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Run initial scrape
-	log.Println("Running initial scrape...")
-	scrapeAll(redisCache)
+	slog.Info("running initial scrape")
+	scrapeAll(ctx, redisCache)
 
-	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			log.Println("Starting scheduled scrape...")
-			scrapeAll(redisCache)
-		case sig := <-sigChan:
-			log.Printf("Received signal %v, shutting down gracefully...", sig)
+			slog.Info("starting scheduled scrape")
+			scrapeAll(ctx, redisCache)
+		case <-ctx.Done():
+			slog.Info("shutdown signal received, stopping")
 			return
 		}
 	}
 }
 
-// scrapeAll fetches and updates all cached players
-func scrapeAll(cache *cache.RedisCache) {
+// scrapeAll refreshes every cached player entry.
+func scrapeAll(ctx context.Context, c *cache.RedisCache) {
+	// A panic in the scraper parser would otherwise kill the whole process,
+	// because this goroutine is not covered by any recover middleware.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("recovered from panic during scrape", "panic", r)
+		}
+	}()
+
 	startTime := time.Now()
 
-	// Get all cached player keys (both complete and profile)
-	keys, err := cache.GetKeys("ow:stats:*")
-	if err != nil {
-		log.Printf("Failed to get cached keys: %v", err)
+	// Collect the keys first: refreshing while iterating a SCAN cursor would
+	// otherwise revisit entries we just rewrote.
+	var keys []string
+	if err := c.IterKeys(ctx, func(key string) bool {
+		keys = append(keys, key)
+		return true
+	}); err != nil {
+		slog.Error("failed to list cached keys", "error", err)
 		return
 	}
 
 	if len(keys) == 0 {
-		log.Println("No cached players found")
+		slog.Info("no cached players found")
 		return
 	}
 
-	log.Printf("Found %d cached entries to update", len(keys))
+	slog.Info("refreshing cached entries", "count", len(keys))
 
-	successful := 0
-	errors := 0
+	successful, failed, skipped := 0, 0, 0
 
 	for i, key := range keys {
-		// Parse key format: ow:stats:platform:tag or ow:stats:platform:tag:profile
-		parts := strings.Split(key, ":")
-		if len(parts) < 4 {
-			log.Printf("Invalid key format: %s", key)
+		if ctx.Err() != nil {
+			slog.Info("scrape interrupted", "processed", i, "total", len(keys))
+			return
+		}
+
+		platform, tag, isProfile, ok := cache.SplitKey(key)
+		if !ok {
+			slog.Warn("skipping key with unexpected format", "key", key)
+			skipped++
 			continue
 		}
 
-		platform := parts[2]
-		tag := parts[3]
-		isProfile := len(parts) == 5 && parts[4] == "profile"
+		slog.Debug("updating entry", "index", i+1, "total", len(keys),
+			"platform", platform, "tag", tag, "profile", isProfile)
 
-		log.Printf("[%d/%d] Updating %s/%s%s...", i+1, len(keys), platform, tag,
-			func() string {
-				if isProfile {
-					return " (profile)"
-				}
-				return ""
-			}())
-
-		var updateErr error
-		if isProfile {
-			// Update profile stats
-			stats, err := ovrstat.ProfileStats(platform, tag)
-			if err != nil {
-				log.Printf("  ✗ Failed: %v", err)
-				errors++
-				updateErr = err
-			} else {
-				if err := cache.SetProfile(platform, tag, stats); err != nil {
-					log.Printf("  ✗ Cache update failed: %v", err)
-					errors++
-					updateErr = err
-				} else {
-					log.Printf("  ✓ Updated successfully")
-					successful++
-				}
+		if err := refreshEntry(ctx, c, platform, tag, isProfile); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
 			}
-		} else {
-			// Update complete stats
-			stats, err := ovrstat.Stats(platform, tag)
-			if err != nil {
-				log.Printf("  ✗ Failed: %v", err)
-				errors++
-				updateErr = err
-			} else {
-				if err := cache.Set(platform, tag, stats); err != nil {
-					log.Printf("  ✗ Cache update failed: %v", err)
-					errors++
-					updateErr = err
-				} else {
-					log.Printf("  ✓ Updated successfully")
-					successful++
-				}
+			slog.Warn("refresh failed, keeping cached data", "platform", platform, "tag", tag, "profile", isProfile, "error", err)
+			if rErr := c.Retain(ctx, platform, tag, isProfile); rErr != nil {
+				slog.Warn("failed to retain cached entry", "platform", platform, "tag", tag, "error", rErr)
 			}
+			failed++
+			continue
 		}
+		successful++
 
-		// Small delay to avoid overwhelming the server
-		if updateErr == nil {
-			time.Sleep(2 * time.Second)
+		// Pace requests, but stay responsive to shutdown.
+		select {
+		case <-time.After(scrapeDelay):
+		case <-ctx.Done():
+			return
 		}
 	}
 
-	duration := time.Since(startTime)
-	log.Printf("Scrape completed in %v: %d successful, %d errors",
-		duration.Round(time.Second), successful, errors)
+	slog.Info("scrape completed",
+		"duration", time.Since(startTime).Round(time.Second),
+		"successful", successful,
+		"failed", failed,
+		"skipped", skipped)
+}
+
+// refreshEntry re-scrapes a single cache entry and writes it back.
+func refreshEntry(ctx context.Context, c *cache.RedisCache, platform, tag string, isProfile bool) error {
+	entryCtx, cancel := context.WithTimeout(ctx, perPlayerTimeout)
+	defer cancel()
+
+	if isProfile {
+		stats, err := ovrstat.ProfileStats(entryCtx, platform, tag)
+		if err != nil {
+			return err
+		}
+		return c.SetProfile(entryCtx, platform, tag, stats)
+	}
+
+	stats, err := ovrstat.Stats(entryCtx, platform, tag)
+	if err != nil {
+		return err
+	}
+	return c.Set(entryCtx, platform, tag, stats)
 }

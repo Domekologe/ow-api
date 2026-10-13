@@ -1,25 +1,21 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/Domekologe/ow-api/service"
 )
 
 func main() {
-	// Start a new service
-	service.Start(getenv("PORT", "8080")) // The port the server will run on
+	// Start the service on the configured port.
+	service.Start(getenv("PORT", "8080"))
 }
 
-// getenv attempts to retrieve and return a variable from the environment. If it
-// fails it will either crash or failover to a passed default value
-func getenv(key string, def ...string) string {
-	if v, ok := os.LookupEnv(key); ok {
+// getenv returns an environment variable, falling back to def when it is unset
+// or empty.
+func getenv(key, def string) string {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
 	}
-	if len(def) == 0 {
-		log.Fatalf("%s not defined in environment", key)
-	}
-	return def[0]
+	return def
 }

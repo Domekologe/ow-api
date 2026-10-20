@@ -85,7 +85,7 @@ curl http://localhost:8080/admin/cache/stats \
 ## Installation & Usage
 
 ### 1. Build from Source
-Ensure you have [Go](https://go.dev/dl/) installed (minimum 1.24).
+Ensure you have [Go](https://go.dev/dl/) installed (minimum 1.27).
 
 ```bash
 # Clone the repository
